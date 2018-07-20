@@ -55,3 +55,8 @@ In particular, a "reduced memory usage" mode has to be introduced for OC users.
 ## Licensing
 
 TBD. For now, consider it "all rights reserved" - or just ask on IRC.
+
+## Acknowledgements
+
+* 8086tiny, for providing the initial motivation and being one of the emulators which proved helpful during 
+development
