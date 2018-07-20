@@ -60,3 +60,6 @@ TBD. For now, consider it "all rights reserved" - or just ask on IRC.
 
 * 8086tiny, for providing the initial motivation and being one of the emulators which proved helpful during 
 development
+* Publicly available 8086 test suites used:
+    * 80186_tests.zip
+    * [riapyx's test suite](https://github.com/ynben/riapyx) - incomplete, but helpful nonetheless
