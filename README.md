@@ -51,3 +51,7 @@ it server-side,
 Many. See the Wiki for the Compatibility List.
 
 In particular, a "reduced memory usage" mode has to be introduced for OC users.
+
+## Licensing
+
+TBD. For now, consider it "all rights reserved" - or just ask on IRC.
