@@ -7,7 +7,9 @@ end
 
 local is_opencomputers = has_module("component")
 
-reduced_memory_mode = true
+reduced_memory_mode = 3
+if (1<<62) == 0 then reduced_memory_mode = 2 end
+
 memory_preallocate = false
 
 if is_opencomputers then

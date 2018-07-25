@@ -1,6 +1,6 @@
 // #define DEBUG_IO
 // #define DEBUG_INTRS
-// #define DEBUG_IPS
+#define DEBUG_IPS
 // #define DEBUG_MEM_UNINITIALIZED
 local ram_640k = {}
 local io_ports = {}
@@ -11,22 +11,20 @@ local opc = 0
 RAM = {}
 if memory_preallocate then
 	local max_mem = 0xA0000
-	if reduced_memory_mode then max_mem = max_mem >> 2 end
+	if reduced_memory_mode > 0 then max_mem = max_mem >> reduced_memory_mode end
 	for i=1,max_mem do
 		ram_640k[i]=0
 	end
 end
 
-if reduced_memory_mode then
+if reduced_memory_mode > 0 then
+	local rmm_mask = (1 << reduced_memory_mode) - 1
+	local rmm = reduced_memory_mode
 	setmetatable(RAM, {
 		__index = function(t, key)
 			if (key < 0xA0000) then
-				local k = (key >> 2) + 1
-				if ram_640k[k] == nil then
-					return 0
-				else
-					return (ram_640k[k] >> ((key & 3) << 3)) & 0xFF
-				end
+				local k = (key >> rmm) + 1
+				return ((ram_640k[k] or 0) >> ((key & rmm_mask) << 3)) & 0xFF
 			elseif (key >= 0xA0000 and key < 0xC0000) then
 				return video_vram_read(key)
 			elseif (key >= 0xF0000 and key < 0x100000) then
@@ -37,15 +35,11 @@ if reduced_memory_mode then
 		end,
 		__newindex = function(t, key, value)
 			if (key < 0xA0000) then
-				local shift = ((key & 3) << 3)
-				local k = (key >> 2) + 1
-				if ram_640k[k] == nil then
-					ram_640k[k] = ((value & 0xFF) << shift)
-				else
-					local mask = 255 << shift
-					local nmask = mask ~ 0xFFFFFFFF
-					ram_640k[k] = (ram_640k[k] & nmask) | ((value & 0xFF) << shift)
-				end
+				local shift = ((key & rmm_mask) << 3)
+				local k = (key >> rmm) + 1
+				local mask = 255 << shift
+				local nmask = mask ~ (-1)
+				ram_640k[k] = ((ram_640k[k] or 0) & nmask) | ((value & 0xFF) << shift)
 			elseif (key >= 0xA0000 and key < 0xC0000) then
 				video_vram_write(key, value)
 			elseif (key >= 0xF0000 and key < 0x100000) then
@@ -54,20 +48,24 @@ if reduced_memory_mode then
 		end
 	})
 	rawset(RAM, "r16", function(ram, key)
-		if (key < 0x9FFFE) and ((key & 3) < 3) then
-			local k = (key >> 2) + 1
-			if ram_640k[k] == nil then
-				return 0
-			else
-				return (ram_640k[k] >> ((key & 3) << 3)) & 0xFFFF
-			end
+		if (key < 0x9FFFE) and ((key & rmm_mask) < rmm_mask) then
+			local k = (key >> rmm) + 1
+			return ((ram_640k[k] or 0) >> ((key & rmm_mask) << 3)) & 0xFFFF
 		else
 			return ram[key] | (ram[key + 1] << 8)
 		end
 	end)
 	rawset(RAM, "w16", function(ram, key, value)
-		ram[key] = (value & 0xFF)
-		ram[key + 1] = (value >> 8)
+		if (key < 0x9FFFE) and ((key & rmm_mask) < rmm_mask) then
+			local k = (key >> rmm) + 1
+			local shift = ((key & rmm_mask) << 3)
+			local mask = 0xFFFF << shift
+			local nmask = mask ~ (-1)
+			ram_640k[k] = ((ram_640k[k] or 0) & nmask) | ((value & 0xFFFF) << shift)
+		else
+			ram[key] = (value & 0xFF)
+			ram[key + 1] = (value >> 8)
+		end
 	end)
 else
 	setmetatable(RAM, {
