@@ -48,6 +48,7 @@ end
 
 if argp[argp["boot"]] == nil then
 	print("Error: Did not find file for boot drive!")
+	print("See 'lunatic86 -h' for usage.")
 	os.exit()
 end
 
@@ -55,11 +56,23 @@ reduced_memory_mode = math.floor(tonumber(argp["mempack"]))
 memory_preallocate = false
 
 if is_opencomputers then
-	dofile("platform_oc.lua")
+	local shell = require("shell")
+	local filesystem = require("filesystem")
+	if filesystem.exists("emu_core.lua") then
+		dofile("platform_oc.lua")
+	else
+		local cwd = shell.getWorkingDirectory()
+		if filesystem.exists("/usr/lib/lunatic86/emu_core.lua") then
+			shell.setWorkingDirectory("/usr/lib/lunatic86")
+		elseif filesystem.exists("/lib/lunatic86/emu_core.lua") then
+			shell.setWorkingDirectory("/lib/lunatic86")
+		end
+		dofile("platform_oc.lua")
+		shell.setWorkingDirectory(cwd)
+	end
 else
 	dofile("platform_curses.lua")
 end
-dofile("emu_core.lua")
 
 for dk,did in pairs(drive_map) do
 	if argp[dk] then

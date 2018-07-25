@@ -498,3 +498,5 @@ end
 
 function platform_finish()
 end
+
+dofile("emu_core.lua")

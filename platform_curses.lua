@@ -1,7 +1,7 @@
 os.setlocale('')
 
 local curses = require "curses"
-local cp437_trans = require("table_cp437")
+local cp437_trans = require "table_cp437"
 dofile("kbdmaps.lua")
 
 function platform_sleep(t)
@@ -105,3 +105,5 @@ end
 function platform_finish()
 	curses.endwin()
 end
+
+dofile("emu_core.lua")
