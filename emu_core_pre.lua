@@ -1,6 +1,7 @@
 // #define DEBUG_IO
 // #define DEBUG_INTRS
 // #define DEBUG_IPS
+// #define DEBUG_MEM_UNINITIALIZED
 local ram_640k = {}
 local io_ports = {}
 local ram_rom = {}
@@ -8,57 +9,118 @@ local ram_rom = {}
 local opc = 0
 
 RAM = {}
-setmetatable(RAM, {
-	__index = function(t, key)
-		if (key < 0xA0000) then
---			if key >= 0x400 and key <= 0x4FF then
---				emu_debug(1, string.format("BDA read %05x",  key), true)
---			end
-			if ram_640k[key + 1] == nil then
-				emu_debug(1, string.format("accessing uninitialized memory at %05x",  key), true)
-				ram_640k[key + 1] = 0
-			end
-			return ram_640k[key + 1] or 0
-		elseif (key >= 0xA0000 and key < 0xC0000) then
-			return video_vram_read(key)
-		elseif (key >= 0xF0000 and key < 0x100000) then
-			return ram_rom[key - 0xEFFFF] or 0x00
-		else
-			return 0xFF
-		end
-	end,
-	__newindex = function(t, key, value)
-		if (key < 0xA0000) then
-			ram_640k[key + 1] = value
-		elseif (key >= 0xA0000 and key < 0xC0000) then
-			video_vram_write(key, value)
-		elseif (key >= 0xF0000 and key < 0x100000) then
-			ram_rom[key - 0xEFFFF] = value
-		end
+if memory_preallocate then
+	local max_mem = 0xA0000
+	if reduced_memory_mode then max_mem = max_mem >> 2 end
+	for i=1,max_mem do
+		ram_640k[i]=0
 	end
-})
+end
 
-rawset(RAM, "w16", function(ram, key, value)
-	if key < 0x9FFFF then
-		ram_640k[key + 1] = (value & 0xFF)
-		ram_640k[key + 2] = (value >> 8)
-	else
+if reduced_memory_mode then
+	setmetatable(RAM, {
+		__index = function(t, key)
+			if (key < 0xA0000) then
+				local k = (key >> 2) + 1
+				if ram_640k[k] == nil then
+					return 0
+				else
+					return (ram_640k[k] >> ((key & 3) << 3)) & 0xFF
+				end
+			elseif (key >= 0xA0000 and key < 0xC0000) then
+				return video_vram_read(key)
+			elseif (key >= 0xF0000 and key < 0x100000) then
+				return ram_rom[key - 0xEFFFF] or 0x00
+			else
+				return 0xFF
+			end
+		end,
+		__newindex = function(t, key, value)
+			if (key < 0xA0000) then
+				local shift = ((key & 3) << 3)
+				local k = (key >> 2) + 1
+				if ram_640k[k] == nil then
+					ram_640k[k] = ((value & 0xFF) << shift)
+				else
+					local mask = 255 << shift
+					local nmask = mask ~ 0xFFFFFFFF
+					ram_640k[k] = (ram_640k[k] & nmask) | ((value & 0xFF) << shift)
+				end
+			elseif (key >= 0xA0000 and key < 0xC0000) then
+				video_vram_write(key, value)
+			elseif (key >= 0xF0000 and key < 0x100000) then
+				ram_rom[key - 0xEFFFF] = value
+			end
+		end
+	})
+	rawset(RAM, "r16", function(ram, key)
+		if (key < 0x9FFFE) and ((key & 3) < 3) then
+			local k = (key >> 2) + 1
+			if ram_640k[k] == nil then
+				return 0
+			else
+				return (ram_640k[k] >> ((key & 3) << 3)) & 0xFFFF
+			end
+		else
+			return ram[key] | (ram[key + 1] << 8)
+		end
+	end)
+	rawset(RAM, "w16", function(ram, key, value)
 		ram[key] = (value & 0xFF)
 		ram[key + 1] = (value >> 8)
-	end
-end)
+	end)
+else
+	setmetatable(RAM, {
+		__index = function(t, key)
+			if (key < 0xA0000) then
+#ifdef DEBUG_MEM_UNINITIALIZED
+				if ram_640k[key + 1] == nil then
+					emu_debug(1, string.format("accessing uninitialized memory at %05x",  key), true)
+					ram_640k[key + 1] = 0
+				end
+#endif
+				return ram_640k[key + 1] or 0
+			elseif (key >= 0xA0000 and key < 0xC0000) then
+				return video_vram_read(key)
+			elseif (key >= 0xF0000 and key < 0x100000) then
+				return ram_rom[key - 0xEFFFF] or 0x00
+			else
+				return 0xFF
+			end
+		end,
+		__newindex = function(t, key, value)
+			if (key < 0xA0000) then
+				ram_640k[key + 1] = value
+			elseif (key >= 0xA0000 and key < 0xC0000) then
+				video_vram_write(key, value)
+			elseif (key >= 0xF0000 and key < 0x100000) then
+				ram_rom[key - 0xEFFFF] = value
+			end
+		end
+	})
+	rawset(RAM, "r16", function(ram, key)
+		if key < 0x9FFFF then
+			return (ram_640k[key + 1] or 0) | ((ram_640k[key + 2] or 0) << 8)
+		else
+			return ram[key] | (ram[key + 1] << 8)
+		end
+	end)
+	rawset(RAM, "w16", function(ram, key, value)
+		if key < 0x9FFFF then
+			ram_640k[key + 1] = (value & 0xFF)
+			ram_640k[key + 2] = (value >> 8)
+		else
+			ram[key] = (value & 0xFF)
+			ram[key + 1] = (value >> 8)
+		end
+	end)
+end
+
 rawset(RAM, "w32", function(ram, key, value)
 	ram[key] = (value & 0xFF)
 	ram[key + 1] = (value >> 8) & 0xFF
 	ram[key + 2] = (value >> 16) & 0xFF
 	ram[key + 3] = (value >> 24)
-end)
-rawset(RAM, "r16", function(ram, key)
-	if key < 0x9FFFF then
-		return (ram_640k[key + 1] or 0) | ((ram_640k[key + 2] or 0) << 8)
-	else
-		return ram[key] | (ram[key + 1] << 8)
-	end
 end)
 rawset(RAM, "r32", function(ram, key)
 	return ram[key] | (ram[key + 1] << 8) | (ram[key + 2] << 16) | (ram[key + 3] << 32)
@@ -1821,60 +1883,6 @@ function cpu_emit_interrupt(v, nmi)
 	end
 end
 
-cpu_register_interrupt_handler(0x11, function()
-	-- equipment list
-	CPU_REGS[1] = RAM:r16(0x410)
-	return true
-end)
-
-cpu_register_interrupt_handler(0x12, function()
-	-- get memory size
-	CPU_REGS[1] = RAM:r16(0x413)
-	return true
-end)
-
-cpu_register_interrupt_handler(0x14, function(ax,ah,al)
-	-- serial
-	if (ah == 0x00) or (ah == 0x03) then
-		CPU_REGS[1] = 0x0000
-		emu_debug(0, "serial: get port status/init\n")
-		return true
-	end
-end)
-
-cpu_register_interrupt_handler(0x17, function(ax,ah,al)
-	-- printer
-	if (ah == 0x01) or (ah == 0x02) then
-		CPU_REGS[1] = CPU_REGS[1] & 0xFF
-		emu_debug(0, "printer: get port status/init\n")
-		return true
-	end
-end)
-
-cpu_register_interrupt_handler(0x15, function(ax,ah,al)
-	emu_debug(1, string.format("unknown sysconf: %02X\n", ah))
-	CPU_REGS[1] = 0x8600 | (CPU_REGS[1] & 0xFF) -- AH = 0x86 (function not supported)
-	cpu_set_flag(0) -- set carry
-	return true
-end)
-
-local function get_timer_ticks()
-	return RAM:r32(0x46c)
-end
-
-local function set_timer_ticks(v)
-	return RAM:w32(0x46c, v)
-end
-
-local timer_last_midnight = 0
-local timer_midnight = 24*60*60*20
-
-cpu_register_interrupt_handler(0x08, function(ax,ah,al)
-	set_timer_ticks(get_timer_ticks()+1)
-	cpu_emit_interrupt(0x1C,false)
-	return true
-end)
-
 -- invalid opcode interrupt
 cpu_register_interrupt_handler(0x06, function(ax,ah,al)
 	-- dummy - override by user
@@ -1887,55 +1895,14 @@ cpu_register_interrupt_handler(0x09, function(ax,ah,al)
 	return true
 end)
 
-cpu_register_interrupt_handler(0x1C, function(ax,ah,al)
-	-- dummy - override by user
-	return true
-end)
-
-cpu_register_interrupt_handler(0x1A, function(ax,ah,al)
-	if (ah == 0x00) then
-		local midnight = 0
-		local timer_ticks = get_timer_ticks()
-		while (timer_ticks - timer_midnight) >= timer_last_midnight do
-			midnight = 1
-			timer_last_midnight = timer_last_midnight + timer_midnight
-		end
-		CPU_REGS[1] = (CPU_REGS[1] & 0xFF00) | midnight
-		CPU_REGS[2] = (timer_ticks >> 16) & 0xFFFF
-		CPU_REGS[3] = (timer_ticks & 0xFFFF)
-		emu_debug(0, "time: get clock time\n")
-		return true
-	elseif (ah == 0x01) then
-		local timer_ticks = CPU_REGS[3] | (CPU_REGS[2] << 16)
-		set_timer_ticks(timer_ticks)
-		-- reset midnight flag
-		timer_last_midnight = 0
-		while (timer_ticks - timer_midnight) >= timer_last_midnight do
-			timer_last_midnight = timer_last_midnight + timer_midnight
-		end
-		emu_debug(0, "time: set clock time\n")
-		return true
-	elseif (ah == 0x03) or (ah == 0x05) then
-		-- TODO
-		emu_debug(0, "time: set RTC (dummy)\n")
-		return true
-	elseif (ah == 0x02) or (ah == 0x04) then
-		-- TODO
-		cpu_clear_flag(0) -- clear carry
-		CPU_REGS[2] = 0x0000
-		CPU_REGS[3] = 0x0000
-		emu_debug(0, "time: get RTC (dummy)\n")
-		return true
-	end
-end)
-
-set_timer_ticks(0)
-
 dofile("pic.lua")
 dofile("pit.lua")
+dofile("timer.lua")
 dofile("video.lua")
 dofile("disks.lua")
 dofile("keyboard.lua")
+dofile("sysconf.lua")
+dofile("comms.lua")
 
 local last_opc = 0
 local opc_avg = {}
@@ -1995,7 +1962,7 @@ local function upd_tick(cv)
 	end
 end
 
-local function execute()
+local function cpu_execute()
 	execute = true
 	while execute == true do
 		execute = run_one(false, true)
@@ -2011,22 +1978,8 @@ local function execute()
 	platform_error("execution stopped\n")
 end
 
--- machine info
-local equipment = 0x0061
-local fdd_count = 1
-for i=0,3 do
-	if disk_has(i) and fdd_count == i then
-		fdd_count = i + 1
-	end
+function emu_execute()
+	CPU_FLAGS = 0x0202
+	sysconf_init()
+	cpu_execute()
 end
-equipment = equipment | ((fdd_count - 1) << 6)
-
-RAM:w16(0x410, equipment) -- equipment list
-RAM:w16(0x413, 640) -- memory size
-RAM[0xFFFFE] = 0xFB
-
-local rdate = "06/07/98"
-for i=1,#rdate do RAM[0xFFFF4 + i] = string.byte(rdate, i, i) end
-
-CPU_FLAGS = 0x0202
-execute()

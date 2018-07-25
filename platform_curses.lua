@@ -102,12 +102,6 @@ function platform_render_text(vram, addr, width, height, pitch)
 	stdscr:refresh()
 end
 
-xpcall(function()
-	dofile("./emu.lua")
-end, function(err)
+function platform_finish()
 	curses.endwin()
-	print("Caught an error: " .. err)
-	print(debug.traceback())
-end)
-
-curses.endwin()
+end

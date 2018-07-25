@@ -63,7 +63,11 @@ local kd_matrix = {}
 
 event.listen("key_down", function(name, addr, char, code, player)
 	code, char = oc_code_transform(code, char)
-	if code >= 0 and code <= 0x7F and not kd_matrix[code] then
+	if code >= 0 and code <= 0x7F then
+		if kd_matrix[code] then
+			-- release first, for autorepeat
+			kbd_send_ibm(0x80 | code, char)
+		end
 		kd_matrix[code] = true
 		kbd_send_ibm(code, char)
 	end
@@ -490,4 +494,5 @@ function platform_render_text(vram, addr, width, height, pitch)
 	dstrings_draw(dstrings)
 end
 
-dofile("./emu.lua")
+function platform_finish()
+end
