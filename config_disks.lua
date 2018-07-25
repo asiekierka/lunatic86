@@ -41,10 +41,3 @@ end
 -- potentially allowing for some degree of hotswapping.
 
 -- disk_init(disk_finder("disk.img"), 0x00)
-
--- Svarog86 FreeDOS (seems to work pretty well)
-disk_init("images/sv86-1440.img", 0x00)
-
--- To create a hard disk drive, you probably want to make one
--- in a decent emulator such as Fake86 first.
--- disk_init("images/hdd.img", 0x80)

@@ -296,7 +296,3 @@ function disk_boot(id)
 	CPU["regs"][3] = 0x0000 | id
 	CPU["regs"][5] = 0x8000
 end
-
-dofile("config_disks.lua")
-
-disk_boot(0x00)

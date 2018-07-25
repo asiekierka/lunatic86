@@ -8,8 +8,10 @@ local cp437_trans = require("table_cp437")
 local oc_palette = require("table_ocpalette")
 dofile("kbdmaps.lua")
 
-local beeper = component.beep
---local beeper = nil
+local beeper = nil
+if #component.list("beep") > 0 then
+	beeper = component.beep
+end
 
 local qdr = {}
 for i=0,255 do
