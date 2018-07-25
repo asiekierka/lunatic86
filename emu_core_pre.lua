@@ -25,7 +25,7 @@ if reduced_memory_mode > 0 then
 			if (key < 0xA0000) then
 				local k = (key >> rmm) + 1
 				return ((ram_640k[k] or 0) >> ((key & rmm_mask) << 3)) & 0xFF
-			elseif (key >= 0xA0000 and key < 0xC0000) then
+			elseif (key < 0xC0000) then
 				return video_vram_read(key)
 			elseif (key >= 0xF0000 and key < 0x100000) then
 				return ram_rom[key - 0xEFFFF] or 0x00
@@ -40,7 +40,7 @@ if reduced_memory_mode > 0 then
 				local mask = 255 << shift
 				local nmask = mask ~ (-1)
 				ram_640k[k] = ((ram_640k[k] or 0) & nmask) | ((value & 0xFF) << shift)
-			elseif (key >= 0xA0000 and key < 0xC0000) then
+			elseif (key < 0xC0000) then
 				video_vram_write(key, value)
 			elseif (key >= 0xF0000 and key < 0x100000) then
 				ram_rom[key - 0xEFFFF] = value
@@ -78,7 +78,7 @@ else
 				end
 #endif
 				return ram_640k[key + 1] or 0
-			elseif (key >= 0xA0000 and key < 0xC0000) then
+			elseif (key < 0xC0000) then
 				return video_vram_read(key)
 			elseif (key >= 0xF0000 and key < 0x100000) then
 				return ram_rom[key - 0xEFFFF] or 0x00
@@ -89,7 +89,7 @@ else
 		__newindex = function(t, key, value)
 			if (key < 0xA0000) then
 				ram_640k[key + 1] = value
-			elseif (key >= 0xA0000 and key < 0xC0000) then
+			elseif (key < 0xC0000) then
 				video_vram_write(key, value)
 			elseif (key >= 0xF0000 and key < 0x100000) then
 				ram_rom[key - 0xEFFFF] = value
@@ -221,7 +221,6 @@ end
 #define cpu_complement_flag(t) CPU_FLAGS = CPU_FLAGS ~ (1 << (t))
 
 local function cpu_incdec_dir(t, amount)
-	t = t + 1
 	if cpu_flag(10) then
 		CPU_REGS[t] = (CPU_REGS[t] - amount) & 0xFFFF
 	else
@@ -1363,15 +1362,15 @@ opcode_map[0xA4] = function(opcode)
 	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	RAM[addrDst] = RAM[addrSrc]
-	cpu_incdec_dir(6, 1)
 	cpu_incdec_dir(7, 1)
+	cpu_incdec_dir(8, 1)
 end
 opcode_map[0xA5] = function(opcode)
 	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	RAM:w16(addrDst, RAM:r16(addrSrc))
-	cpu_incdec_dir(6, 2)
 	cpu_incdec_dir(7, 2)
+	cpu_incdec_dir(8, 2)
 end
 
 -- CMPSB/CMPSW
@@ -1379,15 +1378,15 @@ opcode_map[0xA6] = function(opcode)
 	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	cpu_cmp(RAM[addrSrc], RAM[addrDst], opcode)
-	cpu_incdec_dir(6, 1)
 	cpu_incdec_dir(7, 1)
+	cpu_incdec_dir(8, 1)
 end
 opcode_map[0xA7] = function(opcode)
 	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	cpu_cmp(RAM:r16(addrSrc), RAM:r16(addrDst), opcode)
-	cpu_incdec_dir(6, 2)
 	cpu_incdec_dir(7, 2)
+	cpu_incdec_dir(8, 2)
 end
 
 -- TEST AL, imm8
@@ -1399,36 +1398,36 @@ opcode_map[0xA9] = function(opcode) cpu_and({src=41,dst=0,imm=cpu_advance_ip16()
 opcode_map[0xAA] = function(opcode)
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	RAM[addrDst] = CPU_REGS[1] & 0xFF
-	cpu_incdec_dir(7, 1)
+	cpu_incdec_dir(8, 1)
 end
 opcode_map[0xAB] = function(opcode)
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	RAM:w16(addrDst, CPU_REGS[1])
-	cpu_incdec_dir(7, 2)
+	cpu_incdec_dir(8, 2)
 end
 
 -- LODSB/LODSW
 opcode_map[0xAC] = function(opcode)
 	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
 	CPU_REGS[1] = (CPU_REGS[1] & 0xFF00) | RAM[addrSrc]
-	cpu_incdec_dir(6, 1)
+	cpu_incdec_dir(7, 1)
 end
 opcode_map[0xAD] = function(opcode)
 	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
 	CPU_REGS[1] = RAM:r16(addrSrc)
-	cpu_incdec_dir(6, 2)
+	cpu_incdec_dir(7, 2)
 end
 
 -- SCASB/SCASW
 opcode_map[0xAE] = function(opcode)
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	cpu_cmp(CPU_REGS[1] & 0xFF, RAM[addrDst], opcode)
-	cpu_incdec_dir(7, 1)
+	cpu_incdec_dir(8, 1)
 end
 opcode_map[0xAF] = function(opcode)
 	local addrDst = seg(SEG_ES, CPU_REGS[8])
 	cpu_cmp(CPU_REGS[1], RAM:r16(addrDst), opcode)
-	cpu_incdec_dir(7, 2)
+	cpu_incdec_dir(8, 2)
 end
 
 -- MOV imm8
