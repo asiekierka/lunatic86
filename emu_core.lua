@@ -2038,7 +2038,7 @@ local function upd_tick(cv)
  local last_clock = clock
  clock = cv
 
- upd_count(last_clock)
+
 
  -- handle pc speaker
  if (kbd_get_spkr_latch() & 0x03) == 0x03 then
@@ -2051,7 +2051,7 @@ local function upd_tick(cv)
  -- handle video
  video_update()
  keyboard_update()
- pit_tick(clock, last_clock)
+ --pit_tick(clock, last_clock)
  -- handle OC waits
  cv = os.clock()
  if (cv - clock) < 0.05 then

@@ -84,6 +84,7 @@ event.listen("key_up", function(name, addr, char, code, player)
 end)
 
 function platform_error(msg)
+	print(msg)
 	error(msg)
 end
 

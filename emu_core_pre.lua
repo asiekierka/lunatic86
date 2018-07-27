@@ -1,6 +1,6 @@
 // #define DEBUG_IO
 // #define DEBUG_INTRS
-#define DEBUG_IPS
+// #define DEBUG_IPS
 // #define DEBUG_MEM_UNINITIALIZED
 local ram_640k = {}
 local io_ports = {}
@@ -2044,7 +2044,7 @@ local function upd_tick(cv)
 	-- handle video
 	video_update()
 	keyboard_update()
-	pit_tick(clock, last_clock)
+	--pit_tick(clock, last_clock)
 	-- handle OC waits
 	cv = os.clock()
 	if (cv - clock) < 0.05 then

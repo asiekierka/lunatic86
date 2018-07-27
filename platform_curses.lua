@@ -41,6 +41,7 @@ function platform_getc()
 	local c = stdscr:getch()
 	if c == nil then return nil end
 	if type(c) == "string" then c = string.byte() end
+	if c == 263 then c = 8 end
 	emu_debug(2, string.format("getc %d", c))
 	if map_char_to_key[c] then
 		if c >= 0 and c < 128 then return c,map_char_to_key[c]

@@ -1,5 +1,5 @@
 map_char_to_key = {}
-map_char_to_key[258] = 0x40 -- down
+map_char_to_key[258] = 0x50 -- down
 map_char_to_key[260] = 0x4B -- left
 map_char_to_key[259] = 0x48 -- up
 map_char_to_key[261] = 0x4D -- right
