@@ -188,8 +188,7 @@ local function cpu_advance_ip16()
 end
 
 local function to_s8(i)
--- if i >= 0x80 then return i - 0x100 else return i end
- return i >= 0x80 and (i - 0x100) or i
+ if i >= 0x80 then return i - 0x100 else return i end
 end
 
 local function to_s16(i)
@@ -552,8 +551,13 @@ local function _cpu_uf_bit(vr, opc)
  _cpu_uf_zsp(vr, opc)
 end
 
+local cpu_shift_mask = 0x1F
+if cpu_arch == "8086" then
+ cpu_shift_mask = 0xFF
+end
+
 local function cpu_shl(mrm, opcode)
- local v1 = cpu_read_rm(mrm, mrm.src) & 0x1F
+ local v1 = cpu_read_rm(mrm, mrm.src) & cpu_shift_mask
  if v1 >= 1 then
   -- todo: is the ifcheck correct?
   local v2 = cpu_read_rm(mrm, mrm.dst)
@@ -578,7 +582,7 @@ local function cpu_shr(mrm, opcode, arith)
  local mask = 0x8000
  if w == 0 then mask = 0x80 end
 
- local v1 = cpu_read_rm(mrm, mrm.src) & 0x1F
+ local v1 = cpu_read_rm(mrm, mrm.src) & cpu_shift_mask
  local v2 = cpu_read_rm(mrm, mrm.dst)
  local vr
  if arith then
@@ -613,7 +617,7 @@ local function cpu_rotate(mrm, opcode, mode)
  local shift = 15
  if w == 0 then shift = 7 end
 
- local v1 = cpu_read_rm(mrm, mrm.src) & 0x1F
+ local v1 = cpu_read_rm(mrm, mrm.src) & cpu_shift_mask
  local v2 = cpu_read_rm(mrm, mrm.dst)
  local vr = v2
  local cf = 0
@@ -1211,8 +1215,10 @@ for i=0x51,0x57 do opcode_map[i] = opcode_map[0x50] end
 opcode_map[0x58] = function(opcode) CPU_REGS[(opcode & 0x07) + 1] = cpu_pop16() end
 for i=0x59,0x5F do opcode_map[i] = opcode_map[0x58] end
 
--- PUSH SP (8086/80186 bug reproduction)
-opcode_map[0x54] = function(opcode) cpu_push16(CPU_REGS[5] - 2) end
+if cpu_arch == "8086" or cpu_arch == "80186" then
+ -- PUSH SP (8086/80186 bug reproduction)
+ opcode_map[0x54] = function(opcode) cpu_push16(CPU_REGS[5] - 2) end
+end
 
 -- JMP
 for i=0x70,0x7F do
@@ -1224,6 +1230,72 @@ for i=0x70,0x7F do
   end
  end
 end
+
+if cpu_arch == "8086" then
+ for i=0,15 do
+  opcode_map[0x60 + i] = opcode_map[0x70 + i]
+ end
+else
+-- 80186+ opcodes
+-- TODO: IMUL(69/6B), BOUND, INS, OUTS
+
+-- PUSHA
+opcode_map[0x60] = function(opcode)
+ local tmp = CPU_REGS[5]
+ cpu_push16(CPU_REGS[1])
+ cpu_push16(CPU_REGS[2])
+ cpu_push16(CPU_REGS[3])
+ cpu_push16(CPU_REGS[4])
+ cpu_push16(tmp)
+ cpu_push16(CPU_REGS[6])
+ cpu_push16(CPU_REGS[7])
+ cpu_push16(CPU_REGS[8])
+end
+
+-- POPA
+opcode_map[0x61] = function(opcode)
+ CPU_REGS[8] = cpu_pop16()
+ CPU_REGS[7] = cpu_pop16()
+ CPU_REGS[6] = cpu_pop16()
+ cpu_pop16()
+ CPU_REGS[4] = cpu_pop16()
+ CPU_REGS[3] = cpu_pop16()
+ CPU_REGS[2] = cpu_pop16()
+ CPU_REGS[1] = cpu_pop16()
+end
+
+-- PUSH imm16/imm8
+opcode_map[0x68] = function(opcode)
+ cpu_push16(cpu_advance_ip16())
+end
+opcode_map[0x6A] = function(opcode)
+ cpu_push16(cpu_advance_ip())
+end
+
+-- ENTER (TESTME)
+opcode_map[0xC8] = function(opcode)
+ local nb = cpu_advance_ip16()
+ local level = cpu_advance_ip() & 0x1F
+ cpu_push16(CPU_REGS[6])
+ local frame_ptr = CPU_REGS[5]
+ if level > 0 then
+  for i=1,level-1 do
+   CPU_REGS[6] = CPU_REGS[6] - 2
+   cpu_push16(CPU_REGS[6])
+  end
+  cpu_push16(frame_ptr)
+ end
+ CPU_REGS[6] = frame_ptr
+ CPU_REGS[5] = CPU_REGS[5] - nb
+end
+
+-- LEAVE
+opcode_map[0xC9] = function(opcode)
+ CPU_REGS[5] = CPU_REGS[6]
+ CPU_REGS[6] = cpu_pop16()
+end
+
+end -- (80186+ opcodes)
 
 local grp1_table = {
  cpu_add,
@@ -1331,6 +1403,8 @@ end
 
 -- PUSHF/POPF
 opcode_map[0x9C] = function(opcode) cpu_push16(CPU_FLAGS) end
+
+-- ARCHNOTE: The 286 clears bits 12-15 in real mode.
 opcode_map[0x9D] = function(opcode) CPU_FLAGS = cpu_pop16() | 0xF002 end
 
 -- SAHF/LAHF
@@ -1540,8 +1614,7 @@ local grp2_table = {
 }
 
 -- GRP2 (C0, C1, D0, D1, D2, D3)
--- TODO: verify C0/C1 are 8086
-opcode_map[0xC0] = function(opcode)
+opcode_map[0xD0] = function(opcode)
  local mrm = cpu_mod_rm_copy(opcode & 0x01)
  local v = mrm.src & 0x07
 -- emu_debug(0, "GRP2/"..v)
@@ -1559,11 +1632,14 @@ opcode_map[0xC0] = function(opcode)
  grp2_table[v+1](mrm,opcode)
 end
 
-opcode_map[0xC1] = opcode_map[0xC0]
-opcode_map[0xD0] = opcode_map[0xC0]
-opcode_map[0xD1] = opcode_map[0xC0]
-opcode_map[0xD2] = opcode_map[0xC0]
-opcode_map[0xD3] = opcode_map[0xC0]
+if cpu_arch ~= "8086" then
+ opcode_map[0xC0] = opcode_map[0xD0]
+ opcode_map[0xC1] = opcode_map[0xD0]
+end
+
+opcode_map[0xD1] = opcode_map[0xD0]
+opcode_map[0xD2] = opcode_map[0xD0]
+opcode_map[0xD3] = opcode_map[0xD0]
 
 -- AAM
 opcode_map[0xD4] = function(opcode)
@@ -1831,6 +1907,20 @@ opcode_map[0xFF] = function(opcode)
  else platform_error("GRP5 todo: " .. v) end
 end
 
+-- 8087 FPU stubs
+opcode_map[0x9B] = function(opcode) end
+for i=0xD8,0xDF do
+ opcode_map[i] = function(opcode) cpu_mod_rm(1) end
+end
+
+if cpu_arch == "8086" then
+ -- 8086 0xCX opcode aliases
+ opcode_map[0xC0] = opcode_map[0xC2]
+ opcode_map[0xC1] = opcode_map[0xC3]
+ opcode_map[0xC8] = opcode_map[0xCA]
+ opcode_map[0xC9] = opcode_map[0xCB]
+end
+
 function run_one(no_interrupting, pr_state)
  if not no_interrupting and (#CPU_INTQUEUE > 0) then
 -- local intr = table.remove(CPU_INTQUEUE, 1)
@@ -1937,7 +2027,7 @@ local function upd_tick(cv)
  local last_clock = clock
  clock = cv
 
- upd_count(last_clock)
+
 
  -- handle pc speaker
  if (kbd_get_spkr_latch() & 0x03) == 0x03 then

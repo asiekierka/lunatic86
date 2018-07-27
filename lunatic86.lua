@@ -15,6 +15,7 @@ local is_opencomputers = has_module("component")
 -- defaults
 argp["boot"] = "a"
 argp["mempack"] = 0
+argp["arch"] = "8086"
 
 if is_opencomputers then
 	argp["mempack"] = 3
@@ -36,13 +37,16 @@ for i=1,#args do
 end
 
 if argp["h"] or argp["help"] then
-	print("lunatic86")
+	print("lunatic86 CPU emulator (0.1.1-dev)")
 	print("Usage: lunatic86 [args]")
 	print("    -boot [drive]        Boot from the given drive: a, b, c, d, e, f")
 	print("    -[drive] [filename]  Initialize a given drive letter from a specified file")
 	print("    -mempack [0,1,2,3]   Set the memory packing level. 0 is fastest; 3 requires")
 	print("                         64-bit Lua and is about 10% slower; 2 requires only")
 	print("                         32-bit Lua but is a few percent slower still.")
+	print("    -arch [arch]         Set the CPU architecture emulated. Supported:")
+	print("                         8086 - 8086-compatible CPU")
+	print("                         80186 - 80186-compatible CPU, work in progress!")
 	os.exit()
 end
 
@@ -54,6 +58,7 @@ end
 
 reduced_memory_mode = math.floor(tonumber(argp["mempack"]))
 memory_preallocate = false
+cpu_arch = argp["arch"]
 
 if is_opencomputers then
 	local shell = require("shell")
