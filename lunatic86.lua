@@ -37,7 +37,7 @@ for i=1,#args do
 end
 
 if argp["h"] or argp["help"] then
-	print("lunatic86 CPU emulator (0.1.1-dev)")
+	print("lunatic86 CPU emulator (0.1.1)")
 	print("Usage: lunatic86 [args]")
 	print("    -boot [drive]        Boot from the given drive: a, b, c, d, e, f")
 	print("    -[drive] [filename]  Initialize a given drive letter from a specified file")
