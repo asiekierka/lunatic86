@@ -1,6 +1,6 @@
 // #define DEBUG_IO
 // #define DEBUG_INTRS
-// #define DEBUG_IPS
+#define DEBUG_IPS
 // #define DEBUG_MEM_UNINITIALIZED
 local ram_640k = {}
 local io_ports = {}
@@ -28,7 +28,8 @@ if reduced_memory_mode > 0 then
 			elseif (key < 0xC0000) then
 				return video_vram_read(key)
 			elseif (key >= 0xF0000 and key < 0x100000) then
-				return ram_rom[key - 0xEFFFF] or 0x00
+				local k = ((key - 0xF0000) >> rmm) + 1
+				return ((ram_rom[k] or 0) >> ((key & rmm_mask) << 3)) & 0xFF
 			else
 				return 0xFF
 			end
@@ -43,7 +44,11 @@ if reduced_memory_mode > 0 then
 			elseif (key < 0xC0000) then
 				video_vram_write(key, value)
 			elseif (key >= 0xF0000 and key < 0x100000) then
-				ram_rom[key - 0xEFFFF] = value
+				local shift = ((key & rmm_mask) << 3)
+				local k = ((key - 0xF0000) >> rmm) + 1
+				local mask = 255 << shift
+				local nmask = mask ~ (-1)
+				ram_rom[k] = ((ram_rom[k] or 0) & nmask) | ((value & 0xFF) << shift)
 			end
 		end
 	})
@@ -659,19 +664,20 @@ local function cpu_mul(mrm, opcode)
 	local v1 = cpu_read_rm(mrm, mrm.src)
 	local v2 = cpu_read_rm(mrm, mrm.dst)
 	local vr = v1 * v2
+	local vrf
 	if w == 1 then
 		vr = vr & 0xFFFFFFFF
 		CPU_REGS[3] = (vr >> 16)
 		CPU_REGS[1] = vr & 0xFFFF
-
-		cpu_write_flag(0, (vr >> 16) ~= 0)
-		cpu_write_flag(11, (vr >> 16) ~= 0)
+		vrf = vr >> 16
 	else
 		vr = vr & 0xFFFF
 		CPU_REGS[1] = vr
-		cpu_write_flag(0, (vr >> 8) ~= 0)
-		cpu_write_flag(11, (vr >> 8) ~= 0)
+		vrf = vr >> 8
 	end
+
+	cpu_write_flag(0, vrf ~= 0)
+	cpu_write_flag(11, vrf ~= 0)
 end
 
 local function cpu_imul(mrm, opcode)
@@ -1044,6 +1050,11 @@ for i=0x09,0x0D do opcode_map[i] = opcode_map[0x08] end
 
 -- PUSH CS
 opcode_map[0x0E] = function(opcode) cpu_push16(CPU_SEGMENTS[SEG_CS+1]) end
+
+-- POP CS (8086)
+if cpu_arch == "8086" then
+	opcode_map[0x0F] = function(opcode) CPU_SEGMENTS[SEG_CS+1] = cpu_pop16() end
+end
 
 -- ADC
 opcode_map[0x10] = function(opcode) cpu_add(cpu_mod_rm6(opcode), opcode, true) end
@@ -2033,6 +2044,7 @@ local function upd_tick(cv)
 	-- handle video
 	video_update()
 	keyboard_update()
+	pit_tick(clock, last_clock)
 	-- handle OC waits
 	cv = os.clock()
 	if (cv - clock) < 0.05 then

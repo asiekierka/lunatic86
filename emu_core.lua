@@ -35,7 +35,8 @@ if reduced_memory_mode > 0 then
    elseif (key < 0xC0000) then
     return video_vram_read(key)
    elseif (key >= 0xF0000 and key < 0x100000) then
-    return ram_rom[key - 0xEFFFF] or 0x00
+    local k = ((key - 0xF0000) >> rmm) + 1
+    return ((ram_rom[k] or 0) >> ((key & rmm_mask) << 3)) & 0xFF
    else
     return 0xFF
    end
@@ -50,7 +51,11 @@ if reduced_memory_mode > 0 then
    elseif (key < 0xC0000) then
     video_vram_write(key, value)
    elseif (key >= 0xF0000 and key < 0x100000) then
-    ram_rom[key - 0xEFFFF] = value
+    local shift = ((key & rmm_mask) << 3)
+    local k = ((key - 0xF0000) >> rmm) + 1
+    local mask = 255 << shift
+    local nmask = mask ~ (-1)
+    ram_rom[k] = ((ram_rom[k] or 0) & nmask) | ((value & 0xFF) << shift)
    end
   end
  })
@@ -235,11 +240,11 @@ local function cpu_incdec_dir(t, amount)
  end
 end
 local function cpu_print(t)
- emu_debug(1, string.format("[%04X %04X] ", CPU_SEGMENTS[SEG_CS+1], (CPU_IP-1) & 0xFFFF) .. t .. "\n")
+ emu_debug(1, string.format("[%04X %04X] ", CPU_SEGMENTS[2], (CPU_IP-1) & 0xFFFF) .. t .. "\n")
 end
 
 function cpu_set_ip(vcs, vip)
- CPU_SEGMENTS[SEG_CS+1] = vcs
+ CPU_SEGMENTS[2] = vcs
  CPU_IP = vip
 end
 
@@ -666,19 +671,20 @@ local function cpu_mul(mrm, opcode)
  local v1 = cpu_read_rm(mrm, mrm.src)
  local v2 = cpu_read_rm(mrm, mrm.dst)
  local vr = v1 * v2
+ local vrf
  if w == 1 then
   vr = vr & 0xFFFFFFFF
   CPU_REGS[3] = (vr >> 16)
   CPU_REGS[1] = vr & 0xFFFF
-
-  cpu_write_flag(0, (vr >> 16) ~= 0)
-  cpu_write_flag(11, (vr >> 16) ~= 0)
+  vrf = vr >> 16
  else
   vr = vr & 0xFFFF
   CPU_REGS[1] = vr
-  cpu_write_flag(0, (vr >> 8) ~= 0)
-  cpu_write_flag(11, (vr >> 8) ~= 0)
+  vrf = vr >> 8
  end
+
+ cpu_write_flag(0, vrf ~= 0)
+ cpu_write_flag(11, vrf ~= 0)
 end
 
 local function cpu_imul(mrm, opcode)
@@ -996,10 +1002,10 @@ local function cpu_int(cond)
 
 
  cpu_push16(CPU_FLAGS)
- cpu_push16(CPU_SEGMENTS[SEG_CS+1])
+ cpu_push16(CPU_SEGMENTS[2])
  cpu_push16(CPU_IP)
 
- CPU_SEGMENTS[SEG_CS+1]=seg
+ CPU_SEGMENTS[2]=seg
  CPU_IP=addr
  CPU_HALTED=false
 
@@ -1042,31 +1048,36 @@ opcode_map[0x00] = function(opcode) cpu_add(mrm6_table[((opcode) & 0x7)+1]((opco
 for i=0x01,0x05 do opcode_map[i] = opcode_map[0x00] end
 
 -- PUSH/POP ES
-opcode_map[0x06] = function(opcode) cpu_push16(CPU_SEGMENTS[SEG_ES+1]) end
-opcode_map[0x07] = function(opcode) CPU_SEGMENTS[SEG_ES+1] = cpu_pop16() end
+opcode_map[0x06] = function(opcode) cpu_push16(CPU_SEGMENTS[1]) end
+opcode_map[0x07] = function(opcode) CPU_SEGMENTS[1] = cpu_pop16() end
 
 -- OR
 opcode_map[0x08] = function(opcode) cpu_or(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode) end
 for i=0x09,0x0D do opcode_map[i] = opcode_map[0x08] end
 
 -- PUSH CS
-opcode_map[0x0E] = function(opcode) cpu_push16(CPU_SEGMENTS[SEG_CS+1]) end
+opcode_map[0x0E] = function(opcode) cpu_push16(CPU_SEGMENTS[2]) end
+
+-- POP CS (8086)
+if cpu_arch == "8086" then
+ opcode_map[0x0F] = function(opcode) CPU_SEGMENTS[2] = cpu_pop16() end
+end
 
 -- ADC
 opcode_map[0x10] = function(opcode) cpu_add(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode, true) end
 for i=0x11,0x15 do opcode_map[i] = opcode_map[0x10] end
 
 -- PUSH/POP SS
-opcode_map[0x16] = function(opcode) cpu_push16(CPU_SEGMENTS[SEG_SS+1]) end
-opcode_map[0x17] = function(opcode) CPU_SEGMENTS[SEG_SS+1] = cpu_pop16() end
+opcode_map[0x16] = function(opcode) cpu_push16(CPU_SEGMENTS[3]) end
+opcode_map[0x17] = function(opcode) CPU_SEGMENTS[3] = cpu_pop16() end
 
 -- SBB
 opcode_map[0x18] = function(opcode) cpu_sub(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode, true) end
 for i=0x19,0x1D do opcode_map[i] = opcode_map[0x18] end
 
 -- PUSH/POP DS
-opcode_map[0x1E] = function(opcode) cpu_push16(CPU_SEGMENTS[SEG_DS+1]) end
-opcode_map[0x1F] = function(opcode) CPU_SEGMENTS[SEG_DS+1] = cpu_pop16() end
+opcode_map[0x1E] = function(opcode) cpu_push16(CPU_SEGMENTS[4]) end
+opcode_map[0x1F] = function(opcode) CPU_SEGMENTS[4] = cpu_pop16() end
 
 -- AND
 opcode_map[0x20] = function(opcode) cpu_and(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode) end
@@ -1395,10 +1406,10 @@ end
 opcode_map[0x9A] = function(opcode)
  local newIp = cpu_advance_ip16()
  local newCs = cpu_advance_ip16()
- cpu_push16(CPU_SEGMENTS[SEG_CS+1])
+ cpu_push16(CPU_SEGMENTS[2])
  cpu_push16(CPU_IP)
  CPU_IP = newIp
- CPU_SEGMENTS[SEG_CS+1] = newCs
+ CPU_SEGMENTS[2] = newCs
 end
 
 -- PUSHF/POPF
@@ -1549,9 +1560,9 @@ opcode_map[0xC4] = function(opcode)
  local defseg = cpu_seg_rm(mrm, mrm.src)
  cpu_write_rm(mrm, mrm.dst, RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (defseg))+1]<<4) + (addr))))
  if opcode == 0xC5 then
-  CPU_SEGMENTS[SEG_DS+1] = RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (defseg))+1]<<4) + (addr + 2)))
+  CPU_SEGMENTS[4] = RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (defseg))+1]<<4) + (addr + 2)))
  else
-  CPU_SEGMENTS[SEG_ES+1] = RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (defseg))+1]<<4) + (addr + 2)))
+  CPU_SEGMENTS[1] = RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (defseg))+1]<<4) + (addr + 2)))
  end
 end
 opcode_map[0xC5] = opcode_map[0xC4]
@@ -1568,14 +1579,14 @@ opcode_map[0xC7] = opcode_map[0xC6]
 opcode_map[0xCA] = function(opcode)
  local btp = cpu_advance_ip16()
  CPU_IP = cpu_pop16()
- CPU_SEGMENTS[SEG_CS+1] = cpu_pop16()
+ CPU_SEGMENTS[2] = cpu_pop16()
  CPU_REGS[5] = CPU_REGS[5] + btp
 end
 
 -- RET far
 opcode_map[0xCB] = function(opcode)
  CPU_IP = cpu_pop16()
- CPU_SEGMENTS[SEG_CS+1] = cpu_pop16()
+ CPU_SEGMENTS[2] = cpu_pop16()
 end
 
 -- INT 3
@@ -1598,7 +1609,7 @@ end
 -- IRET far
 opcode_map[0xCF] = function(opcode)
  CPU_IP = cpu_pop16()
- CPU_SEGMENTS[SEG_CS+1] = cpu_pop16()
+ CPU_SEGMENTS[2] = cpu_pop16()
  CPU_FLAGS = cpu_pop16()
 end
 
@@ -1745,7 +1756,7 @@ opcode_map[0xEA] = function(opcode)
  local newIp = cpu_advance_ip16()
  local newCs = cpu_advance_ip16()
  CPU_IP = newIp
- CPU_SEGMENTS[SEG_CS+1] = newCs
+ CPU_SEGMENTS[2] = newCs
 end
 
 -- JMP r8
@@ -1891,10 +1902,10 @@ opcode_map[0xFF] = function(opcode)
   local addr = ((CPU_SEGMENTS[(CPU_SEGMOD or (cpu_seg_rm(mrm,mrm.dst)))+1]<<4) + (cpu_addr_rm(mrm,mrm.dst)))
   local newIp = RAM:r16(addr)
   local newCs = RAM:r16(addr+2)
-  cpu_push16(CPU_SEGMENTS[SEG_CS+1])
+  cpu_push16(CPU_SEGMENTS[2])
   cpu_push16(CPU_IP)
   CPU_IP = newIp
-  CPU_SEGMENTS[SEG_CS+1] = newCs
+  CPU_SEGMENTS[2] = newCs
  elseif v == 4 then -- JMP near abs
   CPU_IP = cpu_read_rm(mrm,mrm.dst)
  elseif v == 5 then -- JMP far
@@ -1902,7 +1913,7 @@ opcode_map[0xFF] = function(opcode)
   local newIp = RAM:r16(addr)
   local newCs = RAM:r16(addr+2)
   CPU_IP = newIp
-  CPU_SEGMENTS[SEG_CS+1] = newCs
+  CPU_SEGMENTS[2] = newCs
  elseif v == 6 then cpu_push16(cpu_read_rm(mrm,mrm.dst))
  else platform_error("GRP5 todo: " .. v) end
 end
@@ -1935,12 +1946,12 @@ function run_one(no_interrupting, pr_state)
 
  if CPU_HALTED then return "block" end
 
- if (CPU_SEGMENTS[SEG_CS+1] == 0xF000) and ((CPU_IP & 0xFF00) == 0x1100) then
+ if (CPU_SEGMENTS[2] == 0xF000) and ((CPU_IP & 0xFF00) == 0x1100) then
   CPU_FLAGS = CPU_FLAGS | (1 << (9)) -- enable interrupts during (after!) fake handlers
   local intr = cpu_int_fake(CPU_IP & 0xFF)
   if intr ~= "block" then
    CPU_IP = cpu_pop16()
-   CPU_SEGMENTS[SEG_CS+1] = cpu_pop16()
+   CPU_SEGMENTS[2] = cpu_pop16()
    local old_flags = cpu_pop16()
    local old_flag_mask = 0x0200
    CPU_FLAGS = (CPU_FLAGS & (~old_flag_mask)) | (old_flags & old_flag_mask)
@@ -2027,7 +2038,7 @@ local function upd_tick(cv)
  local last_clock = clock
  clock = cv
 
-
+ upd_count(last_clock)
 
  -- handle pc speaker
  if (kbd_get_spkr_latch() & 0x03) == 0x03 then
@@ -2040,6 +2051,7 @@ local function upd_tick(cv)
  -- handle video
  video_update()
  keyboard_update()
+ pit_tick(clock, last_clock)
  -- handle OC waits
  cv = os.clock()
  if (cv - clock) < 0.05 then

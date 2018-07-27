@@ -34,5 +34,5 @@ end
 
 RAM[0xFFFFE] = 0xFB
 
-local rdate = "06/07/98"
+local rdate = "07/06/98"
 for i=1,#rdate do RAM[0xFFFF4 + i] = string.byte(rdate, i, i) end
