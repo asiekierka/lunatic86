@@ -19,27 +19,43 @@ local function disk_init_data(fptr, d)
 		d.cylinders = 0
 	elseif d.floppy then
 		d.sector_size = 512
-		if fsize >= 1474560 then
+		if fsize == 2949120 then
+			d.sectors = 36
+			d.heads = 2
+			d.cylinders = 80
+		elseif fsize == 1761280 then
+			d.sectors = 21
+			d.heads = 2
+			d.cylinders = 82
+		elseif fsize == 1720320 then
+			d.sectors = 21
+			d.heads = 2
+			d.cylinders = 80
+		elseif fsize == 1474560 then
 			d.sectors = 18
 			d.heads = 2
 			d.cylinders = 80
-		elseif fsize >= 737280 then
+		elseif fsize == 1228800 then
+			d.sectors = 15
+			d.heads = 2
+			d.cylinders = 80
+		elseif fsize == 737280 then
 			d.sectors = 9
 			d.heads = 2
 			d.cylinders = 80
-		elseif fsize >= (360*1024) then
+		elseif fsize == (360*1024) then
 			d.sectors = 9
 			d.heads = 2
 			d.cylinders = 40
-		elseif fsize >= (320*1024) then
+		elseif fsize == (320*1024) then
 			d.sectors = 8
 			d.heads = 2
 			d.cylinders = 40
-		elseif fsize >= (180*1024) then
+		elseif fsize == (180*1024) then
 			d.sectors = 9
 			d.heads = 1
 			d.cylinders = 40
-		elseif fsize >= (160*1024) then
+		elseif fsize == (160*1024) then
 			d.sectors = 8
 			d.heads = 1
 			d.cylinders = 40

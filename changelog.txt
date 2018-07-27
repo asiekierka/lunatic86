@@ -1,0 +1,18 @@
+0.1.1:
+- add partial 80186 emulation, with "-arch" parameter to select
+- add stubbed opcodes for non-present 8087 FPU
+- add support for less common floppy disk image sizes
+- fix backspace/down arrow key mappings in curses mode
+- fix commonly used 8086/80186 CPU detection methods
+- fix crash in comms.lua
+- make BIOS ROM memory utilize "reduced memory mode"
+- progress on PIT timer emulation
+
+0.1.0:
+- add "lunatic86.lua" as a simple CLI wrapper with arguments
+- add "reduced memory mode" for packing RAM into 32-bit or 64-bit ints
+  for usage in RAM-constrained environments (such as OpenComputers)
+- minor speed bump (+1-2%)
+
+first_commit:
+- first public release
