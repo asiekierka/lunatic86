@@ -2135,14 +2135,6 @@ local function upd_tick(cv)
 		end
 	end
 #endif
-	-- handle pc speaker
-	if (kbd_get_spkr_latch() & 0x03) == 0x03 then
-		local pch = pit_channel(3)
-		if (pch.mode == 2 or pch.mode == 3) and (pch.reload_set_lo and pch.reload_set_hi) then
-			local freq = (pit_osc_freq * 1000000) / pch.reload
-			platform_beep(freq)
-		end
-	end
 	-- handle video
 	video_update()
 	keyboard_update()
@@ -2154,6 +2146,15 @@ local function upd_tick(cv)
 --		if (oc_tick_i % 3) == 0 then
 			platform_sleep(0)
 --		end
+	end
+	--cv = os.clock()
+	-- handle pc speaker
+	if (kbd_get_spkr_latch() & 0x03) == 0x03 then
+		local pch = pit_channel(3)
+		if (pch.mode == 2 or pch.mode == 3 or pch.mode == 6 or pch.mode == 7) and (pch.reload_set_lo and pch.reload_set_hi) then
+			local freq = (pit_osc_freq * 1000000) / pch.reload
+			platform_beep(freq, 0.05)
+		end
 	end
 	clock = cv
 end
