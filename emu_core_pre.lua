@@ -1,11 +1,12 @@
 // #define DEBUG_IO
 // #define DEBUG_INTRS
-// #define DEBUG_IPS
+#define DEBUG_IPS
+// #define DEBUG_OPC_CALLS
 // #define DEBUG_MEM_UNINITIALIZED
 local ram_640k = {}
 local io_ports = {}
 local ram_rom = {}
--- local run_one = nil
+local run_one = nil
 local opc = 0
 
 RAM = {}
@@ -169,9 +170,9 @@ end
 #define seg(s, v) ((CPU_SEGMENTS[(s)+1]<<4)+(v))
 
 function segmd(s, v)
-	return (CPU_SEGMENTS[(CPU_SEGMOD or s)+1]<<4) + v
+	return (CPU_SEGMENTS[(CPU_SEGMOD or (s+1))]<<4) + v
 end
-#define segmd(s, v) ((CPU_SEGMENTS[(CPU_SEGMOD or (s))+1]<<4) + (v))
+#define segmd(s, v) ((CPU_SEGMENTS[(CPU_SEGMOD or (s+1))]<<4) + (v))
 
 local function cpu_advance_ip()
 	local ip = seg(SEG_CS, CPU_IP)
@@ -845,13 +846,18 @@ local function cpu_xor(mrm, opc)
 	_cpu_uf_bit(vr, opc)
 end
 
-local function cpu_and(mrm, opc, is_test)
+local function cpu_and(mrm, opc)
 	local v1 = cpu_read_rm(mrm, mrm.src)
 	local v2 = cpu_read_rm(mrm, mrm.dst)
 	local vr = v1 & v2
-	if not is_test then
-		cpu_write_rm(mrm, mrm.dst, vr)
-	end
+	cpu_write_rm(mrm, mrm.dst, vr)
+	_cpu_uf_bit(vr, opc)
+end
+
+local function cpu_test(mrm, opc)
+	local v1 = cpu_read_rm(mrm, mrm.src)
+	local v2 = cpu_read_rm(mrm, mrm.dst)
+	local vr = v1 & v2
 	_cpu_uf_bit(vr, opc)
 end
 
@@ -1078,7 +1084,7 @@ for i=0x21,0x25 do opcode_map[i] = opcode_map[0x20] end
 
 -- ES:
 opcode_map[0x26] = function(opcode)
-	CPU_SEGMOD = SEG_ES
+	CPU_SEGMOD = SEG_ES+1
 	local r = run_one(true, true)
 	CPU_SEGMOD = nil
 	return r
@@ -1112,7 +1118,7 @@ for i=0x29,0x2D do opcode_map[i] = opcode_map[0x28] end
 
 -- CS:
 opcode_map[0x2E] = function(opcode)
-	CPU_SEGMOD = SEG_CS
+	CPU_SEGMOD = SEG_CS+1
 	local r = run_one(true, true)
 	CPU_SEGMOD = nil
 	return r
@@ -1146,7 +1152,7 @@ for i=0x31,0x35 do opcode_map[i] = opcode_map[0x30] end
 
 -- SS:
 opcode_map[0x36] = function(opcode)
-	CPU_SEGMOD = SEG_SS
+	CPU_SEGMOD = SEG_SS+1
 	local r = run_one(true, true)
 	CPU_SEGMOD = nil
 	return r
@@ -1172,7 +1178,7 @@ for i=0x39,0x3D do opcode_map[i] = opcode_map[0x38] end
 
 -- DS:
 opcode_map[0x3E] = function(opcode)
-	CPU_SEGMOD = SEG_DS
+	CPU_SEGMOD = SEG_DS+1
 	local r = run_one(true, true)
 	CPU_SEGMOD = nil
 	return r
@@ -1196,28 +1202,58 @@ opcode_map[0x3F] = function(opcode)
 end
 
 -- INC
-opcode_map[0x40] = function(opcode)
-	local v = CPU_REGS[(opcode & 0x07) + 1]
-	v = (v + 1) & 0xFFFF
-	CPU_REGS[(opcode & 0x07) + 1] = v
-	_cpu_uf_inc(v, 1)
+#define INC_MACRO(a, b) \
+opcode_map[(a)] = function(opcode) \
+	local v = CPU_REGS[(b)]; \
+	v = (v + 1) & 0xFFFF; \
+	CPU_REGS[(b)] = v; \
+	_cpu_uf_inc(v, 1) \
 end
-for i=0x41,0x47 do opcode_map[i] = opcode_map[0x40] end
+
+INC_MACRO(0x40, 1)
+INC_MACRO(0x41, 2)
+INC_MACRO(0x42, 3)
+INC_MACRO(0x43, 4)
+INC_MACRO(0x44, 5)
+INC_MACRO(0x45, 6)
+INC_MACRO(0x46, 7)
+INC_MACRO(0x47, 8)
 
 -- DEC
-opcode_map[0x48] = function(opcode)
-	local v = CPU_REGS[(opcode & 0x07) + 1]
-	v = (v - 1) & 0xFFFF
-	CPU_REGS[(opcode & 0x07) + 1] = v
-	_cpu_uf_dec(v, 1)
+#define DEC_MACRO(a, b) \
+opcode_map[(a)] = function(opcode) \
+	local v = CPU_REGS[(b)]; \
+	v = (v - 1) & 0xFFFF; \
+	CPU_REGS[(b)] = v; \
+	_cpu_uf_dec(v, 1) \
 end
-for i=0x49,0x4F do opcode_map[i] = opcode_map[0x48] end
+
+DEC_MACRO(0x48, 1)
+DEC_MACRO(0x49, 2)
+DEC_MACRO(0x4A, 3)
+DEC_MACRO(0x4B, 4)
+DEC_MACRO(0x4C, 5)
+DEC_MACRO(0x4D, 6)
+DEC_MACRO(0x4E, 7)
+DEC_MACRO(0x4F, 8)
 
 -- PUSH/POP
-opcode_map[0x50] = function(opcode) cpu_push16(CPU_REGS[(opcode & 0x07) + 1]) end
-for i=0x51,0x57 do opcode_map[i] = opcode_map[0x50] end
-opcode_map[0x58] = function(opcode) CPU_REGS[(opcode & 0x07) + 1] = cpu_pop16() end
-for i=0x59,0x5F do opcode_map[i] = opcode_map[0x58] end
+opcode_map[0x50] = function(opcode) cpu_push16(CPU_REGS[1]) end
+opcode_map[0x51] = function(opcode) cpu_push16(CPU_REGS[2]) end
+opcode_map[0x52] = function(opcode) cpu_push16(CPU_REGS[3]) end
+opcode_map[0x53] = function(opcode) cpu_push16(CPU_REGS[4]) end
+opcode_map[0x54] = function(opcode) cpu_push16(CPU_REGS[5]) end
+opcode_map[0x55] = function(opcode) cpu_push16(CPU_REGS[6]) end
+opcode_map[0x56] = function(opcode) cpu_push16(CPU_REGS[7]) end
+opcode_map[0x57] = function(opcode) cpu_push16(CPU_REGS[8]) end
+opcode_map[0x58] = function(opcode) CPU_REGS[1] = cpu_pop16() end
+opcode_map[0x59] = function(opcode) CPU_REGS[2] = cpu_pop16() end
+opcode_map[0x5A] = function(opcode) CPU_REGS[3] = cpu_pop16() end
+opcode_map[0x5B] = function(opcode) CPU_REGS[4] = cpu_pop16() end
+opcode_map[0x5C] = function(opcode) CPU_REGS[5] = cpu_pop16() end
+opcode_map[0x5D] = function(opcode) CPU_REGS[6] = cpu_pop16() end
+opcode_map[0x5E] = function(opcode) CPU_REGS[7] = cpu_pop16() end
+opcode_map[0x5F] = function(opcode) CPU_REGS[8] = cpu_pop16() end
 
 if cpu_arch == "8086" or cpu_arch == "80186" then
 	-- PUSH SP (8086/80186 bug reproduction)
@@ -1372,8 +1408,8 @@ end
 for i=0x81,0x83 do opcode_map[i] = opcode_map[0x80] end
 
 -- TEST
-opcode_map[0x84] = function(opcode) cpu_and(cpu_mod_rm(opcode & 0x01), opcode, true) end
-opcode_map[0x85] = opcode_map[0x84]
+opcode_map[0x84] = function(opcode) cpu_test(cpu_mod_rm(0), opcode) end
+opcode_map[0x85] = function(opcode) cpu_test(cpu_mod_rm(1), opcode) end
 
 -- XCHG
 opcode_map[0x86] = function(opcode)
@@ -1385,8 +1421,10 @@ end
 opcode_map[0x87] = opcode_map[0x86]
 
 -- MOV mod/rm
-opcode_map[0x88] = function(opcode) cpu_mov(cpu_mod_rm(opcode)) end
-for i=0x89,0x8B do opcode_map[i] = opcode_map[0x88] end
+opcode_map[0x88] = function(opcode) cpu_mov(cpu_mod_rm(0)) end
+opcode_map[0x89] = function(opcode) cpu_mov(cpu_mod_rm(1)) end
+opcode_map[0x8A] = function(opcode) cpu_mov(cpu_mod_rm(2)) end
+opcode_map[0x8B] = function(opcode) cpu_mov(cpu_mod_rm(3)) end
 
 -- MOV segment
 opcode_map[0x8C] = function(opcode)
@@ -1432,9 +1470,11 @@ end
 
 -- CWD
 opcode_map[0x99] = function(opcode)
-	local v = 0x0000
-	if CPU_REGS[1] >= 0x8000 then v = 0xFFFF end
-	CPU_REGS[3] = v
+	if CPU_REGS[1] >= 0x8000 then
+		CPU_REGS[3] = 0xFFFF
+	else
+		CPU_REGS[3] = 0x0000
+	end
 end
 
 
@@ -1519,9 +1559,9 @@ opcode_map[0xA7] = function(opcode)
 end
 
 -- TEST AL, imm8
-opcode_map[0xA8] = function(opcode) cpu_and({src=40,dst=16,imm=cpu_advance_ip()}, 0, true) end
+opcode_map[0xA8] = function(opcode) cpu_test({src=40,dst=16,imm=cpu_advance_ip()}, 0) end
 -- TEST AX, imm16
-opcode_map[0xA9] = function(opcode) cpu_and({src=41,dst=0,imm=cpu_advance_ip16()}, 1, true) end
+opcode_map[0xA9] = function(opcode) cpu_test({src=41,dst=0,imm=cpu_advance_ip16()}, 1) end
 
 -- STOSB/STOSW
 opcode_map[0xAA] = function(opcode)
@@ -1560,22 +1600,24 @@ opcode_map[0xAF] = function(opcode)
 end
 
 -- MOV imm8
-opcode_map[0xB0] = function(opcode)
-	local r = opcode - 0xAF
-	if r >= 5 then
-		r = r - 4
-		CPU_REGS[r] = (CPU_REGS[r] & 0xFF) | ((cpu_advance_ip() & 0xFF) << 8)
-	else
-		CPU_REGS[r] = (CPU_REGS[r] & 0xFF00) | (cpu_advance_ip() & 0xFF)
-	end
-end
-for i=0xB1,0xB7 do opcode_map[i] = opcode_map[0xB0] end
+opcode_map[0xB0] = function(opcode) CPU_REGS[1] = (CPU_REGS[1] & 0xFF00) | (cpu_advance_ip()) end
+opcode_map[0xB1] = function(opcode) CPU_REGS[2] = (CPU_REGS[2] & 0xFF00) | (cpu_advance_ip()) end
+opcode_map[0xB2] = function(opcode) CPU_REGS[3] = (CPU_REGS[3] & 0xFF00) | (cpu_advance_ip()) end
+opcode_map[0xB3] = function(opcode) CPU_REGS[4] = (CPU_REGS[4] & 0xFF00) | (cpu_advance_ip()) end
+opcode_map[0xB4] = function(opcode) CPU_REGS[1] = (CPU_REGS[1] & 0xFF) | (cpu_advance_ip() << 8) end
+opcode_map[0xB5] = function(opcode) CPU_REGS[2] = (CPU_REGS[2] & 0xFF) | (cpu_advance_ip() << 8) end
+opcode_map[0xB6] = function(opcode) CPU_REGS[3] = (CPU_REGS[3] & 0xFF) | (cpu_advance_ip() << 8) end
+opcode_map[0xB7] = function(opcode) CPU_REGS[4] = (CPU_REGS[4] & 0xFF) | (cpu_advance_ip() << 8) end
 
 -- MOV imm16
-opcode_map[0xB8] = function(opcode)
-		CPU_REGS[opcode - 0xB7] = cpu_advance_ip16()
-end
-for i=0xB9,0xBF do opcode_map[i] = opcode_map[0xB8] end
+opcode_map[0xB8] = function(opcode) CPU_REGS[1] = cpu_advance_ip16() end
+opcode_map[0xB9] = function(opcode) CPU_REGS[2] = cpu_advance_ip16() end
+opcode_map[0xBA] = function(opcode) CPU_REGS[3] = cpu_advance_ip16() end
+opcode_map[0xBB] = function(opcode) CPU_REGS[4] = cpu_advance_ip16() end
+opcode_map[0xBC] = function(opcode) CPU_REGS[5] = cpu_advance_ip16() end
+opcode_map[0xBD] = function(opcode) CPU_REGS[6] = cpu_advance_ip16() end
+opcode_map[0xBE] = function(opcode) CPU_REGS[7] = cpu_advance_ip16() end
+opcode_map[0xBF] = function(opcode) CPU_REGS[8] = cpu_advance_ip16() end
 
 -- RET near + pop
 opcode_map[0xC2] = function(opcode)
@@ -1605,11 +1647,13 @@ opcode_map[0xC5] = opcode_map[0xC4]
 
 -- MOV imm(rm)
 opcode_map[0xC6] = function(opcode)
-	local mrm = cpu_mod_rm(opcode ~ 0x02)
-	if opcode == 0xC6 then cpu_write_rm(mrm, mrm.dst, cpu_advance_ip())
-	else cpu_write_rm(mrm, mrm.dst, cpu_advance_ip16()) end
+	local mrm = cpu_mod_rm(0)
+	cpu_write_rm(mrm, mrm.dst, cpu_advance_ip())
 end
-opcode_map[0xC7] = opcode_map[0xC6]
+opcode_map[0xC7] = function(opcode)
+	local mrm = cpu_mod_rm(1)
+	cpu_write_rm(mrm, mrm.dst, cpu_advance_ip16())
+end
 
 -- RET far + pop
 opcode_map[0xCA] = function(opcode)
@@ -1664,7 +1708,6 @@ local grp2_table = {
 opcode_map[0xD0] = function(opcode)
 	local mrm = cpu_mod_rm_copy(opcode & 0x01)
 	local v = mrm.src & 0x07
---	emu_debug(0, "GRP2/"..v)
 
 	if (opcode & 0xFE) == 0xC0 then -- C0/C1 - imm8
 		mrm.src = 40
@@ -1861,7 +1904,7 @@ opcode_map[0xF6] = function(opcode)
 			mrm.src = 40
 			mrm.imm = cpu_advance_ip()
 		end
-		cpu_and(mrm, opcode, true)
+		cpu_test(mrm, opcode)
 	elseif	v == 2 then -- NOT
 		if (opcode & 0x01) == 1 then
 			cpu_write_rm(mrm, mrm.dst, cpu_read_rm(mrm, mrm.dst) ~ 0xFFFF)
@@ -1968,7 +2011,12 @@ if cpu_arch == "8086" then
 	opcode_map[0xC9] = opcode_map[0xCB]	
 end
 
-function run_one(no_interrupting, pr_state)
+#ifdef DEBUG_OPC_CALLS
+local opc_calls = {}
+for i=0,255 do opc_calls[i] = 0 end
+#endif
+
+run_one = function(no_interrupting, pr_state)
 	if not no_interrupting and (#CPU_INTQUEUE > 0) then
 --		local intr = table.remove(CPU_INTQUEUE, 1)
 		local intr = CPU_INTQUEUE[1]
@@ -2001,6 +2049,9 @@ function run_one(no_interrupting, pr_state)
 --	if pr_state then cpu_print_state(opcode) end
 
 	local om = opcode_map[opcode]
+#ifdef DEBUG_OPC_CALLS
+	opc_calls[opcode] = opc_calls[opcode] + 1
+#endif
 
 	if om ~= nil then
 		local result = om(opcode)
@@ -2070,13 +2121,19 @@ end
 
 local oc_tick_i = 0
 
-local last_pit_clock = clock
-
 local function upd_tick(cv)
 	local last_clock = clock
 	clock = cv
 #ifdef DEBUG_IPS
 	upd_count(last_clock)
+#endif
+#ifdef DEBUG_OPC_CALLS
+	for i=0,255 do
+		if opc_calls[i] > 0 then
+			emu_debug(2, "opcode " .. i .. ": " .. opc_calls[i])
+			opc_calls[i] = 0
+		end
+	end
 #endif
 	-- handle pc speaker
 	if (kbd_get_spkr_latch() & 0x03) == 0x03 then
@@ -2089,8 +2146,7 @@ local function upd_tick(cv)
 	-- handle video
 	video_update()
 	keyboard_update()
-	pit_tick(last_pit_clock, clock)
-	last_pit_clock = clock
+	pit_tick(clock)
 	-- handle OC waits
 	cv = os.clock()
 	if (cv - clock) < 0.05 then
@@ -2100,12 +2156,6 @@ local function upd_tick(cv)
 --		end
 	end
 	clock = cv
-	-- handle interrupt
-	for i=last_clock,clock,0.05 do
-		if pic_interrupt_enabled(PIC_INTERRUPT_TIMER) then
-			cpu_emit_interrupt(0x08, false)
-		end
-	end
 end
 
 local function cpu_execute()
