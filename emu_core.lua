@@ -2034,6 +2034,8 @@ end
 
 local oc_tick_i = 0
 
+local last_pit_clock = clock
+
 local function upd_tick(cv)
  local last_clock = clock
  clock = cv
@@ -2051,7 +2053,8 @@ local function upd_tick(cv)
  -- handle video
  video_update()
  keyboard_update()
- --pit_tick(clock, last_clock)
+ pit_tick(last_pit_clock, clock)
+ last_pit_clock = clock
  -- handle OC waits
  cv = os.clock()
  if (cv - clock) < 0.05 then

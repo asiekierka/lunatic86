@@ -509,6 +509,7 @@ cpu_register_interrupt_handler(0x10, function(ax,ah,al)
 		CPU["regs"][4] = 0x020A
 		return true
 	else
+		cpu_set_flag(0)
 		return false
 	end
 end)

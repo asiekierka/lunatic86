@@ -281,6 +281,7 @@ cpu_register_interrupt_handler(0x13, function(ax,ah,al)
 		ret_status(1)
 		return true
 	else
+		cpu_set_flag(0)
 		return false
 	end
 end)

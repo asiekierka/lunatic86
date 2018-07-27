@@ -30,6 +30,12 @@ function pit_tick(last_t, curr_t)
 		local trig=0
 		local ch=channels[c]
 		local ch_ready=(not ch.paused) and ch.reload_set_lo and ch.reload_set_hi
+		if ch_ready then
+			emu_debug(2, "PIT tick " .. c .. " mode " .. ch.mode)
+		end
+		if ch.reload == 0 then
+			ch.reload = 0x10000
+		end
 		if (ch.mode == 0 or ch.mode == 4) and ch_ready then
 			if ch.count == 0 then ch.count = ch.reload end
 			ch.count = ch.count - osc_count
@@ -39,6 +45,7 @@ function pit_tick(last_t, curr_t)
 				ch.paused = true
 			end
 		elseif (ch.mode == 2 or ch.mode == 3) and ch_ready then
+			emu_debug(2, "PIT " .. ch.count .. " -> " .. (ch.count - osc_count))
 			ch.count = ch.count - osc_count
 			while ch.count < 0 do
 				ch.count = ch.count + ch.reload

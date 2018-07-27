@@ -54,6 +54,8 @@ cpu_register_interrupt_handler(0x1A, function(ax,ah,al)
 		CPU["regs"][3] = 0x0000
 		emu_debug(0, "time: get RTC (dummy)\n")
 		return true
+	else
+		cpu_set_flag(0)
 	end
 end)
 

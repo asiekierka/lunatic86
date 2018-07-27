@@ -155,6 +155,8 @@ cpu_register_interrupt_handler(0x16, function(ax,ah,al)
 		al = RAM[0x417]
 		CPU["regs"][1] = (ah << 8) | al
 		return true
+	else
+		cpu_set_flag(0)
 	end
 end)
 
