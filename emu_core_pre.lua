@@ -1241,7 +1241,7 @@ if cpu_arch == "8086" then
 	end
 else
 -- 80186+ opcodes
--- TODO: IMUL(69/6B), BOUND, INS, OUTS
+-- TODO: IMUL(69/6B), BOUND
 
 -- PUSHA
 opcode_map[0x60] = function(opcode)
@@ -1297,6 +1297,49 @@ end
 opcode_map[0xC9] = function(opcode)
 	CPU_REGS[5] = CPU_REGS[6]
 	CPU_REGS[6] = cpu_pop16()
+end
+
+opcode_map[0xA4] = function(opcode)
+	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
+	local addrDst = seg(SEG_ES, CPU_REGS[8])
+	RAM[addrDst] = RAM[addrSrc]
+	cpu_incdec_dir(7, 1)
+	cpu_incdec_dir(8, 1)
+end
+opcode_map[0xA5] = function(opcode)
+	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
+	local addrDst = seg(SEG_ES, CPU_REGS[8])
+	RAM:w16(addrDst, RAM:r16(addrSrc))
+	cpu_incdec_dir(7, 2)
+	cpu_incdec_dir(8, 2)
+end
+
+-- INS Ib
+opcode_map[0x6C] = function(opcode)
+	local addrDst = seg(SEG_ES, CPU_REGS[8])
+	RAM[addrDst] = cpu_in(CPU_REGS[3]) & 0xFF
+	cpu_incdec_dir(8, 1)
+end
+
+-- INS Iw
+opcode_map[0x6D] = function(opcode)
+	local addrDst = seg(SEG_ES, CPU_REGS[8])
+	RAM:w16(addrDst, cpu_in(CPU_REGS[3]) & 0xFFFF)
+	cpu_incdec_dir(8, 2)
+end
+
+-- OUTS Ib
+opcode_map[0x6E] = function(opcode)
+	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
+	cpu_out(CPU_REGS[3], RAM[addrSrc])
+	cpu_incdec_dir(7, 1)
+end
+
+-- OUTS Iw
+opcode_map[0x6F] = function(opcode)
+	local addrSrc = segmd(SEG_DS, CPU_REGS[7])
+	cpu_out(CPU_REGS[3], RAM:r16(addrSrc))
+	cpu_incdec_dir(7, 2)
 end
 
 end -- (80186+ opcodes)
