@@ -1,6 +1,6 @@
 // #define DEBUG_IO
 // #define DEBUG_INTRS
-#define DEBUG_IPS
+// #define DEBUG_IPS
 // #define DEBUG_OPC_CALLS
 // #define DEBUG_MEM_UNINITIALIZED
 local ram_640k = {}

@@ -2118,8 +2118,6 @@ local function upd_tick(cv)
  local last_clock = clock
  clock = cv
 
- upd_count(last_clock)
-
  -- handle pc speaker
  if (kbd_get_spkr_latch() & 0x03) == 0x03 then
   local pch = pit_channel(3)
