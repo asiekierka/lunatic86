@@ -4,14 +4,19 @@ local unicode = require("unicode")
 local keyboard = require("keyboard")
 local computer = require("computer")
 local gpu = component.gpu
+if gpu.getDepth() < 4 then
+	error("Tier 2 or above GPU card required!")
+end
+
 local cp437_trans = require("table_cp437")
 local oc_palette = require("table_ocpalette")
 dofile("kbdmaps.lua")
 
 local beeper = nil
-if #component.list("beep") > 0 then
-	beeper = component.beep
-end
+local beeper_count = 0
+
+for a,b in component.list("beep") do beeper_count = beeper_count + 1 end
+if beeper_count > 0 then beeper = component.beep end
 
 local qdr = {}
 for i=0,255 do
@@ -30,11 +35,11 @@ function emu_debug(s)
 	return false
 end
 
-function platform_beep(freq)
+function platform_beep(freq, time)
 	freq = math.floor(freq)
 	if freq < 20 then freq = 20
 	elseif freq > 2000 then freq = 2000 end
-	if beeper then beeper.beep({[freq]=0.05}) end
+	if beeper then beeper.beep({[freq]=(time or 0.05)}) end
 end
 
 function platform_sleep(t)
