@@ -194,11 +194,11 @@ local function cpu_advance_ip16()
 end
 
 local function to_s8(i)
- if i >= 0x80 then return i - 0x100 else return i end
+ return i - ((i & 0x80) << 1)
 end
 
 local function to_s16(i)
- if i >= 0x8000 then return i - 0x10000 else return i end
+ return i - ((i & 0x8000) << 1)
 end
 
 local function to_s32(i)
@@ -265,8 +265,8 @@ local _cpu_rm_seg_t = {
  SEG_SS, SEG_DS
 }
 
-local function _cpu_rm_seg(data, v)
- return _cpu_rm_seg_t[v + 1]
+local function _cpu_rm_seg(v)
+ return _cpu_rm_seg_t[v]
 end
 
 
@@ -282,82 +282,96 @@ local _cpu_rm_addr_t = {
 }
 
 local function _cpu_rm_addr(data, v)
- return _cpu_rm_addr_t[v+1](data)
+ return _cpu_rm_addr_t[v](data)
 end
 
 
 local function cpu_seg_rm(data, v)
  if v >= 8 and v < 16 then
-  return _cpu_rm_seg_t[(v - 8) + 1]
+  return _cpu_rm_seg_t[(v - 7)]
  elseif v >= 32 and v < 40 then
-  return _cpu_rm_seg_t[(v - 32) + 1]
+  return _cpu_rm_seg_t[(v - 31)]
  else return SEG_DS end
 end
 
 local function cpu_addr_rm(data, v)
  if v >= 8 and v < 16 then
-  return _cpu_rm_addr_t[(v - 8) + 1]((data))
+  return _cpu_rm_addr_t[(v - 7)]((data))
  elseif v >= 24 and v <= 25 then
   return data.disp
  elseif v >= 32 and v < 40 then
-  return _cpu_rm_addr_t[(v - 32) + 1]((data))
+  return _cpu_rm_addr_t[(v - 31)]((data))
  else
   platform_error("cpu_addr_rm todo: " .. v)
  end
 end
 
 local readrm_table = {}
-for i=0,7 do readrm_table[i] = function(data, v) return CPU_REGS[v + 1] end end
+readrm_table[0] = function(data, v) return CPU_REGS[1] end
+readrm_table[1] = function(data, v) return CPU_REGS[2] end
+readrm_table[2] = function(data, v) return CPU_REGS[3] end
+readrm_table[3] = function(data, v) return CPU_REGS[4] end
+readrm_table[4] = function(data, v) return CPU_REGS[5] end
+readrm_table[5] = function(data, v) return CPU_REGS[6] end
+readrm_table[6] = function(data, v) return CPU_REGS[7] end
+readrm_table[7] = function(data, v) return CPU_REGS[8] end
 for i=8,15 do readrm_table[i] = function(data, v)
- return RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 8) + 1]+1))]<<4) + (_cpu_rm_addr_t[(v - 8) + 1]((data)))))
+ return RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 7)]+1))]<<4) + (_cpu_rm_addr_t[(v - 7)]((data)))))
 end end
-for i=16,19 do readrm_table[i] = function(data, v)
- return CPU_REGS[(v & 3) + 1] & 0xFF
-end end
-for i=20,23 do readrm_table[i] = function(data, v)
- return CPU_REGS[(v & 3) + 1] >> 8
-end end
-readrm_table[24] = function(data,v) return RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp))] end
-readrm_table[25] = function(data,v) return RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp))) end
+readrm_table[16] = function(data, v) return CPU_REGS[1] & 0xFF end
+readrm_table[17] = function(data, v) return CPU_REGS[2] & 0xFF end
+readrm_table[18] = function(data, v) return CPU_REGS[3] & 0xFF end
+readrm_table[19] = function(data, v) return CPU_REGS[4] & 0xFF end
+readrm_table[20] = function(data, v) return CPU_REGS[1] >> 8 end
+readrm_table[21] = function(data, v) return CPU_REGS[2] >> 8 end
+readrm_table[22] = function(data, v) return CPU_REGS[3] >> 8 end
+readrm_table[23] = function(data, v) return CPU_REGS[4] >> 8 end
+readrm_table[24] = function(data, v) return RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp))] end
+readrm_table[25] = function(data, v) return RAM:r16(((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp))) end
 for i=26,31 do readrm_table[i] = function(data, v)
  return CPU_SEGMENTS[v - 25]
 end end
 for i=32,39 do readrm_table[i] = function(data, v)
- return RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 32) + 1]+1))]<<4) + (_cpu_rm_addr_t[(v - 32) + 1]((data))))]
+ return RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 31)]+1))]<<4) + (_cpu_rm_addr_t[(v - 31)]((data))))]
 end end
 readrm_table[40] = function(data, v) return data.imm & 0xFF end
-readrm_table[41] = function(data, v) return data.imm & 0xFFFF end
+readrm_table[41] = function(data, v) return data.imm end
 
 local function cpu_read_rm(data, v)
  return readrm_table[v](data, v)
 end
 
 local writerm_table = {}
-for i=0,7 do writerm_table[i] = function(data, v, val)
- CPU_REGS[v + 1] = val & 0xFFFF
-end end
+writerm_table[0] = function(data, v, val) CPU_REGS[1] = val end
+writerm_table[1] = function(data, v, val) CPU_REGS[2] = val end
+writerm_table[2] = function(data, v, val) CPU_REGS[3] = val end
+writerm_table[3] = function(data, v, val) CPU_REGS[4] = val end
+writerm_table[4] = function(data, v, val) CPU_REGS[5] = val end
+writerm_table[5] = function(data, v, val) CPU_REGS[6] = val end
+writerm_table[6] = function(data, v, val) CPU_REGS[7] = val end
+writerm_table[7] = function(data, v, val) CPU_REGS[8] = val end
 for i=8,15 do writerm_table[i] = function(data, v, val)
- RAM:w16(((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 8) + 1]+1))]<<4) + (_cpu_rm_addr_t[(v - 8) + 1]((data)))), val)
+ RAM:w16(((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 7)]+1))]<<4) + (_cpu_rm_addr_t[(v - 7)]((data)))), val)
 end end
 for i=16,19 do writerm_table[i] = function(data, v, val)
- local r = CPU_REGS[(v & 3) + 1]
- CPU_REGS[(v & 3) + 1] = (r & 0xFF00) | (val & 0xFF)
+ local vr = (v & 3) + 1
+ CPU_REGS[vr] = (CPU_REGS[vr] & 0xFF00) | (val & 0xFF)
 end end
 for i=20,23 do writerm_table[i] = function(data, v, val)
- local r = CPU_REGS[(v & 3) + 1]
- CPU_REGS[(v & 3) + 1] = (r & 0x00FF) | ((val & 0xFF) << 8)
+ local vr = (v & 3) + 1
+ CPU_REGS[vr] = (CPU_REGS[vr] & 0x00FF) | ((val & 0xFF) << 8)
 end end
 writerm_table[24] = function(data, v, val)
  RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp))] = val & 0xFF
 end
 writerm_table[25] = function(data, v, val)
- RAM:w16(((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp)), val & 0xFFFF)
+ RAM:w16(((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp)), val)
 end
 for i=26,31 do writerm_table[i] = function(data, v, val)
- CPU_SEGMENTS[v - 25] = val & 0xFFFF
+ CPU_SEGMENTS[v - 25] = val
 end end
 for i=32,39 do writerm_table[i] = function(data, v, val)
- RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 32) + 1]+1))]<<4) + (_cpu_rm_addr_t[(v - 32) + 1]((data))))] = val & 0xFF
+ RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 31)]+1))]<<4) + (_cpu_rm_addr_t[(v - 31)]((data))))] = val & 0xFF
 end end
 local function cpu_write_rm(data, v, val)
  writerm_table[v](data, v, val)
@@ -429,8 +443,7 @@ local function cpu_mod_rm(opcode, is_seg)
  return data
 end
 
-local function cpu_mod_rm_copy(opcode, is_seg)
- local data = cpu_mod_rm(opcode, is_seg)
+local function cpu_mrm_copy(data)
  return {src=data.src,dst=data.dst,disp=data.disp}
 end
 
@@ -442,8 +455,6 @@ local mrm6_table = {
  cpu_mod_rm,
  cpu_mod_rm,
  cpu_mod_rm,
--- function(v) return {src=40,dst=16,imm=cpu_advance_ip()} end,
--- function(v) return {src=41,dst=0,imm=cpu_advance_ip16()} end,
  function(v)
   mrm6_4.imm=cpu_advance_ip()
   return mrm6_4
@@ -480,7 +491,7 @@ end
 
 
 local function cpu_push16(v)
- CPU_REGS[5] = (CPU_REGS[5] - 2 & 0xFFFF)
+ CPU_REGS[5] = (CPU_REGS[5] - 2) & 0xFFFF
  RAM:w16(((CPU_SEGMENTS[(SEG_SS)+1]<<4)+(CPU_REGS[5])), v & 0xFFFF)
  --emu_debug(0, string.format("stack: >%04X @%04X\n", v, CPU_REGS[5]))
 end
@@ -595,7 +606,7 @@ local function cpu_shr(mrm, opcode, arith)
   vr = v2
   local shift1 = v1
   while shift1 > 0 do
-   vr = (vr & mask) | ((vr >> 1) & (~mask))
+   vr = (vr & mask) | ((vr >> 1) & (mask - 1))
    shift1 = shift1 - 1
   end
  else
@@ -659,7 +670,7 @@ local function cpu_rotate(mrm, opcode, mode)
    of = ((vr >> shift) ~ cf) & 0x01
   end
 
-  cpu_write_rm(mrm, mrm.dst, vr)
+  cpu_write_rm(mrm, mrm.dst, vr & 0xFFFF)
   cpu_write_flag(0, cf == 1)
   if v1 == 1 then
    cpu_write_flag(11, of == 1)
@@ -1697,32 +1708,34 @@ local grp2_table = {
  function(a,b) cpu_shr(a,b,true) end
 }
 
--- GRP2 (C0, C1, D0, D1, D2, D3)
+-- GRP2
 opcode_map[0xD0] = function(opcode)
- local mrm = cpu_mod_rm_copy(opcode & 0x01)
- local v = mrm.src & 0x07
-
- if (opcode & 0xFE) == 0xC0 then -- C0/C1 - imm8
-  mrm.src = 40
-  mrm.imm = cpu_advance_ip()
- elseif (opcode & 0x02) == 2 then -- D2/D3 - CL
-  mrm.src = 17
- else -- D0/D1 - 1
-  mrm.src = 40
-  mrm.imm = 1
- end
-
- grp2_table[v+1](mrm,opcode)
+ local mrm = cpu_mrm_copy(cpu_mod_rm(opcode & 0x01))
+ local v = (mrm.src & 0x07) + 1
+ mrm.src = 40
+ mrm.imm = 1
+ grp2_table[v](mrm,opcode)
+end
+opcode_map[0xD2] = function(opcode)
+ local mrm = cpu_mrm_copy(cpu_mod_rm(opcode & 0x01))
+ local v = (mrm.src & 0x07) + 1
+ mrm.src = 17
+ grp2_table[v](mrm,opcode)
 end
 
 if cpu_arch ~= "8086" then
- opcode_map[0xC0] = opcode_map[0xD0]
+ opcode_map[0xC0] = function(opcode)
+  local mrm = cpu_mrm_copy(cpu_mod_rm(opcode & 0x01))
+  local v = (mrm.src & 0x07) + 1
+  mrm.src = 40
+  mrm.imm = cpu_advance_ip()
+  grp2_table[v](mrm,opcode)
+ end
  opcode_map[0xC1] = opcode_map[0xD0]
 end
 
 opcode_map[0xD1] = opcode_map[0xD0]
-opcode_map[0xD2] = opcode_map[0xD0]
-opcode_map[0xD3] = opcode_map[0xD0]
+opcode_map[0xD3] = opcode_map[0xD2]
 
 -- AAM
 opcode_map[0xD4] = function(opcode)
@@ -1883,13 +1896,11 @@ opcode_map[0xF5] = function(opcode) CPU_FLAGS = CPU_FLAGS ~ (1 << (0)) end
 
 -- GRP3
 opcode_map[0xF6] = function(opcode)
- local mrm = cpu_mod_rm_copy(opcode & 0x01)
+ local mrm = cpu_mod_rm(opcode & 0x01)
  local v = mrm.src & 0x07
--- emu_debug(0, "GRP3/"..v)
-
- if (opcode & 0x01) == 1 then mrm.src = 0 else mrm.src = 16 end
 
  if v == 0 then
+  mrm = cpu_mrm_copy(mrm)
   if opcode == 0xF7 then
    mrm.src = 41
    mrm.imm = cpu_advance_ip16()
@@ -1919,11 +1930,16 @@ opcode_map[0xF6] = function(opcode)
   cpu_write_flag(0, src ~= 0)
   cpu_write_flag(4, ((src ~ result) & 0x10) ~= 0)
   _cpu_uf_zsp(result, opcode)
- elseif v == 4 then cpu_mul(mrm, opcode)
- elseif v == 5 then cpu_imul(mrm, opcode)
- elseif v == 6 then cpu_div(mrm, opcode)
- elseif v == 7 then cpu_idiv(mrm, opcode)
- else platform_error("GRP3 todo: " .. v) end
+ else
+  mrm = cpu_mrm_copy(mrm)
+  if (opcode & 0x01) == 1 then mrm.src = 0 else mrm.src = 16 end
+
+  if v == 4 then cpu_mul(mrm, opcode)
+  elseif v == 5 then cpu_imul(mrm, opcode)
+  elseif v == 6 then cpu_div(mrm, opcode)
+  elseif v == 7 then cpu_idiv(mrm, opcode)
+  else platform_error("GRP3 todo: " .. v) end
+ end
 end
 opcode_map[0xF7] = opcode_map[0xF6]
 
@@ -2117,6 +2133,8 @@ local oc_tick_i = 0
 local function upd_tick(cv)
  local last_clock = clock
  clock = cv
+
+ upd_count(last_clock)
 
  -- handle video
  video_update()

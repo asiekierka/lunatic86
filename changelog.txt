@@ -1,3 +1,6 @@
+0.2.0:
+- minor speed bump (+0.5%)
+
 0.1.1:
 - add partial 80186 emulation, with "-arch" parameter to select
 - add stubbed opcodes for non-present 8087 FPU
