@@ -1,5 +1,5 @@
 0.2.0:
-- minor speed bump (+0.5%)
+- minor speed bump (+4%)
 
 0.1.1:
 - add partial 80186 emulation, with "-arch" parameter to select

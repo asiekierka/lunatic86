@@ -194,11 +194,11 @@ local function cpu_advance_ip16()
 end
 
 local function to_s8(i)
- return i - ((i & 0x80) << 1)
+ if i >= 0x80 then return i - 0x100 else return i end
 end
 
 local function to_s16(i)
- return i - ((i & 0x8000) << 1)
+ if i >= 0x8000 then return i - 0x10000 else return i end
 end
 
 local function to_s32(i)
@@ -227,6 +227,7 @@ function cpu_write_flag(t, v)
   CPU_FLAGS = CPU_FLAGS & (~(1 << t))
  end
 end
+local cpu_write_flag = cpu_write_flag
 
 function cpu_complement_flag(t)
  CPU_FLAGS = CPU_FLAGS ~ (1 << t)
@@ -925,6 +926,8 @@ local function cpu_rep(cond)
  CPU_IP = old_ip
 
  local pr_state = true
+ local skipConds = opcode ~= 0xA6 and opcode ~= 0xA7 and opcode ~= 0xAE and opcode ~= 0xAF
+
  while CPU_REGS[2] ~= 0 do
   local r = run_one(true, pr_state)
 
@@ -934,7 +937,7 @@ local function cpu_rep(cond)
   CPU_REGS[2] = (CPU_REGS[2] - 1) & 0xFFFF
   if CPU_REGS[2] == 0 then break end
 
-  local condResult = opcode ~= 0xA6 and opcode ~= 0xA7 and opcode ~= 0xAE and opcode ~= 0xAF
+  local condResult = skipConds
   if not condResult then condResult = cond() end
   if condResult then
    CPU_IP = old_ip
@@ -1397,19 +1400,33 @@ local grp1_table = {
 
 -- GRP1
 opcode_map[0x80] = function(opcode)
- local mrm_base = cpu_mod_rm(opcode & 0x01)
- local v = mrm_base.src & 0x07
- local mrm = {src=(40+(opcode & 0x01)),dst=mrm_base.dst,disp=mrm_base.disp}
- if opcode == 0x81 then
-  mrm.imm = cpu_advance_ip16()
- elseif opcode == 0x83 then
-  mrm.imm = to_s8(cpu_advance_ip()) & 0xFFFF
- else
-  mrm.imm = cpu_advance_ip()
- end
+ local mrm = cpu_mrm_copy(cpu_mod_rm(0))
+ local v = mrm.src & 0x07
+ mrm.src = 40
+ mrm.imm = cpu_advance_ip()
  grp1_table[v+1](mrm, opcode)
 end
-for i=0x81,0x83 do opcode_map[i] = opcode_map[0x80] end
+opcode_map[0x81] = function(opcode)
+ local mrm = cpu_mrm_copy(cpu_mod_rm(1))
+ local v = mrm.src & 0x07
+ mrm.src = 41
+ mrm.imm = cpu_advance_ip16()
+ grp1_table[v+1](mrm, opcode)
+end
+opcode_map[0x82] = function(opcode)
+ local mrm = cpu_mrm_copy(cpu_mod_rm(0))
+ local v = mrm.src & 0x07
+ mrm.src = 40
+ mrm.imm = cpu_advance_ip()
+ grp1_table[v+1](mrm, opcode)
+end
+opcode_map[0x83] = function(opcode)
+ local mrm = cpu_mrm_copy(cpu_mod_rm(1))
+ local v = mrm.src & 0x07
+ mrm.src = 41
+ mrm.imm = to_s8(cpu_advance_ip()) & 0xFFFF
+ grp1_table[v+1](mrm, opcode)
+end
 
 -- TEST
 opcode_map[0x84] = function(opcode) cpu_test(cpu_mod_rm(0), opcode) end
@@ -1481,7 +1498,6 @@ opcode_map[0x99] = function(opcode)
  end
 end
 
-
 -- CALL far
 opcode_map[0x9A] = function(opcode)
  local newIp = cpu_advance_ip16()
@@ -1500,10 +1516,10 @@ opcode_map[0x9D] = function(opcode) CPU_FLAGS = cpu_pop16() | 0xF002 end
 
 -- SAHF/LAHF
 opcode_map[0x9E] = function(opcode)
-  CPU_FLAGS = (CPU_FLAGS & 0xFF00) | ((CPU_REGS[1] & 0xFF00) >> 8)
+ CPU_FLAGS = (CPU_FLAGS & 0xFF00) | ((CPU_REGS[1] & 0xFF00) >> 8)
 end
 opcode_map[0x9F] = function(opcode)
-  CPU_REGS[1] = (CPU_REGS[1] & 0xFF) | ((CPU_FLAGS & 0xFF) << 8)
+ CPU_REGS[1] = (CPU_REGS[1] & 0xFF) | ((CPU_FLAGS & 0xFF) << 8)
 end
 
 -- MOV offs->AL
@@ -1895,51 +1911,61 @@ end
 opcode_map[0xF5] = function(opcode) CPU_FLAGS = CPU_FLAGS ~ (1 << (0)) end
 
 -- GRP3
+local grp3_table = {}
+grp3_table[0] = function(mrm, opcode)
+ mrm = cpu_mrm_copy(mrm)
+ if opcode == 0xF7 then
+  mrm.src = 41
+  mrm.imm = cpu_advance_ip16()
+ else
+  mrm.src = 40
+  mrm.imm = cpu_advance_ip()
+ end
+ cpu_test(mrm, opcode)
+end
+grp3_table[1] = function()
+ platform_error("invalid opcode: GRP3/1")
+end
+
+-- GRP3/NOT
+grp3_table[2] = function(mrm, opcode)
+ if opcode == 0xF7 then
+  cpu_write_rm(mrm, mrm.dst, cpu_read_rm(mrm, mrm.dst) ~ 0xFFFF)
+ else
+  cpu_write_rm(mrm, mrm.dst, cpu_read_rm(mrm, mrm.dst) ~ 0xFF)
+ end
+end
+
+-- GRP3/NEG
+grp3_table[3] = function(mrm, opcode)
+ local src = cpu_read_rm(mrm, mrm.dst)
+ local result = 0
+ if opcode == 0xF7 then
+  result = ((src ~ 0xFFFF) + 1) & 0xFFFF
+  cpu_write_flag(11, src == 0x8000)
+ else
+  result = ((src ~ 0xFF) + 1) & 0xFF
+  cpu_write_flag(11, src == 0x80)
+ end
+ cpu_write_rm(mrm, mrm.dst, result)
+ cpu_write_flag(0, src ~= 0)
+ cpu_write_flag(4, ((src ~ result) & 0x10) ~= 0)
+ _cpu_uf_zsp(result, opcode)
+end
+
+grp3_table[4] = cpu_mul
+grp3_table[5] = cpu_imul
+grp3_table[6] = cpu_div
+grp3_table[7] = cpu_idiv
+
 opcode_map[0xF6] = function(opcode)
  local mrm = cpu_mod_rm(opcode & 0x01)
  local v = mrm.src & 0x07
-
- if v == 0 then
+ if v >= 4 then
   mrm = cpu_mrm_copy(mrm)
-  if opcode == 0xF7 then
-   mrm.src = 41
-   mrm.imm = cpu_advance_ip16()
-  else
-   mrm.src = 40
-   mrm.imm = cpu_advance_ip()
-  end
-  cpu_test(mrm, opcode)
- elseif v == 2 then -- NOT
-  if (opcode & 0x01) == 1 then
-   cpu_write_rm(mrm, mrm.dst, cpu_read_rm(mrm, mrm.dst) ~ 0xFFFF)
-  else
-   cpu_write_rm(mrm, mrm.dst, cpu_read_rm(mrm, mrm.dst) ~ 0xFF)
-  end
-  -- does not set flags
- elseif v == 3 then -- NEG
-  local src = cpu_read_rm(mrm, mrm.dst)
-  local result = 0
-  if (opcode & 0x01) == 1 then
-   result = ((src ~ 0xFFFF) + 1) & 0xFFFF
-   cpu_write_flag(11, src == 0x8000)
-  else
-   result = ((src ~ 0xFF) + 1) & 0xFF
-   cpu_write_flag(11, src == 0x80)
-  end
-  cpu_write_rm(mrm, mrm.dst, result)
-  cpu_write_flag(0, src ~= 0)
-  cpu_write_flag(4, ((src ~ result) & 0x10) ~= 0)
-  _cpu_uf_zsp(result, opcode)
- else
-  mrm = cpu_mrm_copy(mrm)
-  if (opcode & 0x01) == 1 then mrm.src = 0 else mrm.src = 16 end
-
-  if v == 4 then cpu_mul(mrm, opcode)
-  elseif v == 5 then cpu_imul(mrm, opcode)
-  elseif v == 6 then cpu_div(mrm, opcode)
-  elseif v == 7 then cpu_idiv(mrm, opcode)
-  else platform_error("GRP3 todo: " .. v) end
+  if opcode == 0xF7 then mrm.src = 0 else mrm.src = 16 end
  end
+ grp3_table[v](mrm, opcode)
 end
 opcode_map[0xF7] = opcode_map[0xF6]
 
@@ -2039,7 +2065,7 @@ run_one = function(no_interrupting, pr_state)
 
  if CPU_HALTED then return "block" end
 
- if (CPU_SEGMENTS[2] == 0xF000) and ((CPU_IP & 0xFF00) == 0x1100) then
+ if ((CPU_IP & 0xFF00) == 0x1100) and (CPU_SEGMENTS[2] == 0xF000) then
   CPU_FLAGS = CPU_FLAGS | (1 << (9)) -- enable interrupts during (after!) fake handlers
   local intr = cpu_int_fake(CPU_IP & 0xFF)
   if intr ~= "block" then
@@ -2066,14 +2092,15 @@ run_one = function(no_interrupting, pr_state)
   local result = om(opcode)
   if result ~= nil then
    return result
+  else
+   return true
   end
  else
   emu_debug(2, "unknown opcode: " .. string.format("%02X", opcode))
   cpu_print_state(opcode)
   cpu_emit_interrupt(6, false)
+  return true
  end
-
- return true
 end
 
 function cpu_emit_interrupt(v, nmi)
