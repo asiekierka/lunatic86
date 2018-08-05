@@ -151,6 +151,7 @@ local CPU_FLAGS = 0
 local CPU_SEGMOD = nil
 local CPU_HALTED = false
 local CPU_INTQUEUE = {}
+local CPU_HASINT = false
 
 CPU = {
  regs = CPU_REGS,
@@ -354,14 +355,14 @@ writerm_table[7] = function(data, v, val) CPU_REGS[8] = val end
 for i=8,15 do writerm_table[i] = function(data, v, val)
  RAM:w16(((CPU_SEGMENTS[(CPU_SEGMOD or (_cpu_rm_seg_t[(v - 7)]+1))]<<4) + (_cpu_rm_addr_t[(v - 7)]((data)))), val)
 end end
-for i=16,19 do writerm_table[i] = function(data, v, val)
- local vr = (v & 3) + 1
- CPU_REGS[vr] = (CPU_REGS[vr] & 0xFF00) | (val & 0xFF)
-end end
-for i=20,23 do writerm_table[i] = function(data, v, val)
- local vr = (v & 3) + 1
- CPU_REGS[vr] = (CPU_REGS[vr] & 0x00FF) | ((val & 0xFF) << 8)
-end end
+writerm_table[16] = function(data, v, val) CPU_REGS[1] = (CPU_REGS[1] & 0xFF00) | (val & 0xFF) end
+writerm_table[17] = function(data, v, val) CPU_REGS[2] = (CPU_REGS[2] & 0xFF00) | (val & 0xFF) end
+writerm_table[18] = function(data, v, val) CPU_REGS[3] = (CPU_REGS[3] & 0xFF00) | (val & 0xFF) end
+writerm_table[19] = function(data, v, val) CPU_REGS[4] = (CPU_REGS[4] & 0xFF00) | (val & 0xFF) end
+writerm_table[20] = function(data, v, val) CPU_REGS[1] = (CPU_REGS[1] & 0xFF) | ((val & 0xFF) << 8) end
+writerm_table[21] = function(data, v, val) CPU_REGS[2] = (CPU_REGS[2] & 0xFF) | ((val & 0xFF) << 8) end
+writerm_table[22] = function(data, v, val) CPU_REGS[3] = (CPU_REGS[3] & 0xFF) | ((val & 0xFF) << 8) end
+writerm_table[23] = function(data, v, val) CPU_REGS[4] = (CPU_REGS[4] & 0xFF) | ((val & 0xFF) << 8) end
 writerm_table[24] = function(data, v, val)
  RAM[((CPU_SEGMENTS[(CPU_SEGMOD or (4))]<<4) + (data.disp))] = val & 0xFF
 end
@@ -1475,12 +1476,20 @@ opcode_map[0x8F] = function(opcode)
 end
 
 -- XCHG (XCHG AX, AX == NOP)
-opcode_map[0x91] = function(opcode)
- local t = CPU_REGS[1]
- CPU_REGS[1] = CPU_REGS[opcode - 0x8F]
- CPU_REGS[opcode - 0x8F] = t
-end
-for i=0x92,0x97 do opcode_map[i] = opcode_map[0x91] end
+
+
+
+
+
+
+
+opcode_map[(0x91)] = function(opcode) local v = CPU_REGS[(2)]; CPU_REGS[(2)] = CPU_REGS[1]; CPU_REGS[1] = v; end
+opcode_map[(0x92)] = function(opcode) local v = CPU_REGS[(3)]; CPU_REGS[(3)] = CPU_REGS[1]; CPU_REGS[1] = v; end
+opcode_map[(0x93)] = function(opcode) local v = CPU_REGS[(4)]; CPU_REGS[(4)] = CPU_REGS[1]; CPU_REGS[1] = v; end
+opcode_map[(0x94)] = function(opcode) local v = CPU_REGS[(5)]; CPU_REGS[(5)] = CPU_REGS[1]; CPU_REGS[1] = v; end
+opcode_map[(0x95)] = function(opcode) local v = CPU_REGS[(6)]; CPU_REGS[(6)] = CPU_REGS[1]; CPU_REGS[1] = v; end
+opcode_map[(0x96)] = function(opcode) local v = CPU_REGS[(7)]; CPU_REGS[(7)] = CPU_REGS[1]; CPU_REGS[1] = v; end
+opcode_map[(0x97)] = function(opcode) local v = CPU_REGS[(8)]; CPU_REGS[(8)] = CPU_REGS[1]; CPU_REGS[1] = v; end
 
 -- CBW
 opcode_map[0x98] = function(opcode)
@@ -2052,13 +2061,14 @@ end
 
 
 run_one = function(no_interrupting, pr_state)
- if not no_interrupting and (#CPU_INTQUEUE > 0) then
+ if CPU_HASINT and not no_interrupting then
 -- local intr = table.remove(CPU_INTQUEUE, 1)
   local intr = CPU_INTQUEUE[1]
   if intr ~= nil then
    if intr >= 256 or ((CPU_FLAGS & (1<<(9))) ~= 0) then
     table.remove(CPU_INTQUEUE, 1)
     cpu_int(intr & 0xFF)
+    if #CPU_INTQUEUE == 0 then CPU_HASINT = false end
    end
   end
  end
@@ -2110,6 +2120,7 @@ function cpu_emit_interrupt(v, nmi)
  else
   table.insert(CPU_INTQUEUE, v)
  end
+ CPU_HASINT = true
 end
 
 -- invalid opcode interrupt
@@ -2194,8 +2205,7 @@ local function cpu_execute()
   if execute == "block" then
    upd_tick(os.clock())
    execute = true
-  end
-  if ((opc & 0x1FF) == 0) and (os.clock() - clock) >= 0.05 then
+  elseif ((opc & 0x1FF) == 0) and (os.clock() - clock) >= 0.05 then
    upd_tick(os.clock())
   end
   opc = opc + 1
