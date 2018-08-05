@@ -424,12 +424,12 @@ for i=0,2047 do
  if mod == 2 then cdisp = 2
  elseif mod == 1 then cdisp = 1
  elseif mod == 0 and rm == 6 then cdisp = 3 end
- mrm_table[i+1] = {src=src,dst=dst,cdisp=cdisp,disp=0}
+ mrm_table[i] = {src=src,dst=dst,cdisp=cdisp,disp=0}
 end
 
 local function cpu_mod_rm(opcode, is_seg)
  local modrm = cpu_advance_ip() | ((opcode & 3) << 8) | (is_seg or 0)
- local data = mrm_table[modrm+1]
+ local data = mrm_table[modrm]
 
  if data.cdisp == 0 then
   return data
@@ -452,25 +452,25 @@ local mrm6_4 = {src=40,dst=16,imm=0}
 local mrm6_5 = {src=41,dst=0,imm=0}
 
 local mrm6_table = {
- cpu_mod_rm,
- cpu_mod_rm,
- cpu_mod_rm,
- cpu_mod_rm,
- function(v)
+ [0]=cpu_mod_rm,
+ [1]=cpu_mod_rm,
+ [2]=cpu_mod_rm,
+ [3]=cpu_mod_rm,
+ [4]=function(v)
   mrm6_4.imm=cpu_advance_ip()
   return mrm6_4
  end,
- function(v)
+ [5]=function(v)
   mrm6_5.imm=cpu_advance_ip16()
   return mrm6_5
  end,
- cpu_mod_rm,
- cpu_mod_rm
+ [6]=cpu_mod_rm,
+ [7]=cpu_mod_rm
 }
 
 local function cpu_mod_rm6(opcode)
  local v = opcode & 0x07
- return mrm6_table[v+1](v)
+ return mrm6_table[v](v)
 end
 
 
@@ -482,12 +482,12 @@ for i = 0,255 do
   p = p + (v & 1)
   v = v >> 1
  end
- parity_table[i+1] = (p & 1) == 0
+ parity_table[i] = (p & 1) == 0
 end
 
 local function cpu_write_parity(v)
  -- only effects LSB
- cpu_write_flag(2, parity_table[(v & 0xFF)+1])
+ cpu_write_flag(2, parity_table[v & 0xFF])
 end
 
 
@@ -513,11 +513,11 @@ local function _cpu_uf_zsp(vr, opc)
  if (opc & 0x01) == 1 then
   cpu_write_flag(6, (vr & 0xFFFF) == 0)
   cpu_write_flag(7, (vr & 0x8000) ~= 0)
-  cpu_write_flag(2, parity_table[(vr & 0xFF)+1])
+  cpu_write_flag(2, parity_table[vr & 0xFF])
  else
   cpu_write_flag(6, (vr & 0xFF) == 0)
   cpu_write_flag(7, (vr & 0x80) ~= 0)
-  cpu_write_flag(2, parity_table[(vr & 0xFF)+1])
+  cpu_write_flag(2, parity_table[vr & 0xFF])
  end
 end
 
@@ -1064,7 +1064,7 @@ local opcode_map = {}
 opcode_map[0x90] = function(opcode) end
 
 -- ADD
-opcode_map[0x00] = function(opcode) cpu_add(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode) end
+opcode_map[0x00] = function(opcode) cpu_add(mrm6_table[((opcode) & 0x7)]((opcode)), opcode) end
 for i=0x01,0x05 do opcode_map[i] = opcode_map[0x00] end
 
 -- PUSH/POP ES
@@ -1072,7 +1072,7 @@ opcode_map[0x06] = function(opcode) cpu_push16(CPU_SEGMENTS[1]) end
 opcode_map[0x07] = function(opcode) CPU_SEGMENTS[1] = cpu_pop16() end
 
 -- OR
-opcode_map[0x08] = function(opcode) cpu_or(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode) end
+opcode_map[0x08] = function(opcode) cpu_or(mrm6_table[((opcode) & 0x7)]((opcode)), opcode) end
 for i=0x09,0x0D do opcode_map[i] = opcode_map[0x08] end
 
 -- PUSH CS
@@ -1084,7 +1084,7 @@ if cpu_arch == "8086" then
 end
 
 -- ADC
-opcode_map[0x10] = function(opcode) cpu_add(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode, true) end
+opcode_map[0x10] = function(opcode) cpu_add(mrm6_table[((opcode) & 0x7)]((opcode)), opcode, true) end
 for i=0x11,0x15 do opcode_map[i] = opcode_map[0x10] end
 
 -- PUSH/POP SS
@@ -1092,7 +1092,7 @@ opcode_map[0x16] = function(opcode) cpu_push16(CPU_SEGMENTS[3]) end
 opcode_map[0x17] = function(opcode) CPU_SEGMENTS[3] = cpu_pop16() end
 
 -- SBB
-opcode_map[0x18] = function(opcode) cpu_sub(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode, true) end
+opcode_map[0x18] = function(opcode) cpu_sub(mrm6_table[((opcode) & 0x7)]((opcode)), opcode, true) end
 for i=0x19,0x1D do opcode_map[i] = opcode_map[0x18] end
 
 -- PUSH/POP DS
@@ -1100,7 +1100,7 @@ opcode_map[0x1E] = function(opcode) cpu_push16(CPU_SEGMENTS[4]) end
 opcode_map[0x1F] = function(opcode) CPU_SEGMENTS[4] = cpu_pop16() end
 
 -- AND
-opcode_map[0x20] = function(opcode) cpu_and(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode) end
+opcode_map[0x20] = function(opcode) cpu_and(mrm6_table[((opcode) & 0x7)]((opcode)), opcode) end
 for i=0x21,0x25 do opcode_map[i] = opcode_map[0x20] end
 
 -- ES:
@@ -1134,7 +1134,7 @@ opcode_map[0x27] = function(opcode)
 end
 
 -- SUB
-opcode_map[0x28] = function(opcode) cpu_sub(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode) end
+opcode_map[0x28] = function(opcode) cpu_sub(mrm6_table[((opcode) & 0x7)]((opcode)), opcode) end
 for i=0x29,0x2D do opcode_map[i] = opcode_map[0x28] end
 
 -- CS:
@@ -1168,7 +1168,7 @@ opcode_map[0x2F] = function(opcode)
 end
 
 -- XOR
-opcode_map[0x30] = function(opcode) cpu_xor(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode) end
+opcode_map[0x30] = function(opcode) cpu_xor(mrm6_table[((opcode) & 0x7)]((opcode)), opcode) end
 for i=0x31,0x35 do opcode_map[i] = opcode_map[0x30] end
 
 -- SS:
@@ -1194,7 +1194,7 @@ opcode_map[0x37] = function(opcode)
 end
 
 -- CMP
-opcode_map[0x38] = function(opcode) cpu_sub(mrm6_table[((opcode) & 0x7)+1]((opcode)), opcode, false, true) end
+opcode_map[0x38] = function(opcode) cpu_sub(mrm6_table[((opcode) & 0x7)]((opcode)), opcode, false, true) end
 for i=0x39,0x3D do opcode_map[i] = opcode_map[0x38] end
 
 -- DS:
@@ -1388,14 +1388,14 @@ end
 end -- (80186+ opcodes)
 
 local grp1_table = {
- cpu_add,
- cpu_or,
- function(a,b) cpu_add(a,b,true) end,
- function(a,b) cpu_sub(a,b,true) end,
- cpu_and,
- function(a,b) cpu_sub(a,b,false) end,
- cpu_xor,
- function(a,b) cpu_sub(a,b,false,true) end
+ [0]=cpu_add,
+ [1]=cpu_or,
+ [2]=function(a,b) cpu_add(a,b,true) end,
+ [3]=function(a,b) cpu_sub(a,b,true) end,
+ [4]=cpu_and,
+ [5]=function(a,b) cpu_sub(a,b,false) end,
+ [6]=cpu_xor,
+ [7]=function(a,b) cpu_sub(a,b,false,true) end
 }
 
 -- GRP1
@@ -1404,28 +1404,28 @@ opcode_map[0x80] = function(opcode)
  local v = mrm.src & 0x07
  mrm.src = 40
  mrm.imm = cpu_advance_ip()
- grp1_table[v+1](mrm, opcode)
+ grp1_table[v](mrm, opcode)
 end
 opcode_map[0x81] = function(opcode)
  local mrm = cpu_mrm_copy(cpu_mod_rm(1))
  local v = mrm.src & 0x07
  mrm.src = 41
  mrm.imm = cpu_advance_ip16()
- grp1_table[v+1](mrm, opcode)
+ grp1_table[v](mrm, opcode)
 end
 opcode_map[0x82] = function(opcode)
  local mrm = cpu_mrm_copy(cpu_mod_rm(0))
  local v = mrm.src & 0x07
  mrm.src = 40
  mrm.imm = cpu_advance_ip()
- grp1_table[v+1](mrm, opcode)
+ grp1_table[v](mrm, opcode)
 end
 opcode_map[0x83] = function(opcode)
  local mrm = cpu_mrm_copy(cpu_mod_rm(1))
  local v = mrm.src & 0x07
  mrm.src = 41
  mrm.imm = to_s8(cpu_advance_ip()) & 0xFFFF
- grp1_table[v+1](mrm, opcode)
+ grp1_table[v](mrm, opcode)
 end
 
 -- TEST
