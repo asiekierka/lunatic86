@@ -476,14 +476,17 @@ for i = 0,255 do
 		p = p + (v & 1)
 		v = v >> 1
 	end
-	parity_table[i] = (p & 1) == 0
+	if (p & 1) == 0 then
+		parity_table[i] = 4
+	else
+		parity_table[i] = 0
+	end
 end
 
 local function cpu_write_parity(v)
-	-- only effects LSB
-	cpu_write_flag(2, parity_table[v & 0xFF])
+	CPU_FLAGS = CPU_FLAGS & 0xFFFB | parity_table[v & 0xFF]
 end
-#define cpu_write_parity(v) cpu_write_flag(2, parity_table[v & 0xFF])
+#define cpu_write_parity(v) CPU_FLAGS = CPU_FLAGS & 0xFFFB | parity_table[v & 0xFF]
 
 local function cpu_push16(v)
 	CPU_REGS[5] = (CPU_REGS[5] - 2) & 0xFFFF

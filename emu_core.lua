@@ -483,12 +483,15 @@ for i = 0,255 do
   p = p + (v & 1)
   v = v >> 1
  end
- parity_table[i] = (p & 1) == 0
+ if (p & 1) == 0 then
+  parity_table[i] = 4
+ else
+  parity_table[i] = 0
+ end
 end
 
 local function cpu_write_parity(v)
- -- only effects LSB
- cpu_write_flag(2, parity_table[v & 0xFF])
+ CPU_FLAGS = CPU_FLAGS & 0xFFFB | parity_table[v & 0xFF]
 end
 
 
@@ -514,11 +517,11 @@ local function _cpu_uf_zsp(vr, opc)
  if (opc & 0x01) == 1 then
   cpu_write_flag(6, (vr & 0xFFFF) == 0)
   cpu_write_flag(7, (vr & 0x8000) ~= 0)
-  cpu_write_flag(2, parity_table[vr & 0xFF])
+  CPU_FLAGS = CPU_FLAGS & 0xFFFB | parity_table[vr & 0xFF]
  else
   cpu_write_flag(6, (vr & 0xFF) == 0)
   cpu_write_flag(7, (vr & 0x80) ~= 0)
-  cpu_write_flag(2, parity_table[vr & 0xFF])
+  CPU_FLAGS = CPU_FLAGS & 0xFFFB | parity_table[vr & 0xFF]
  end
 end
 
