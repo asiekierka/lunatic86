@@ -1,8 +1,9 @@
 // #define DEBUG_IO
 // #define DEBUG_INTRS
-#define DEBUG_IPS
+// #define DEBUG_IPS
 // #define DEBUG_OPC_CALLS
 // #define DEBUG_MEM_UNINITIALIZED
+// #define DEBUG_RUN
 local ram_640k = {}
 local io_ports = {}
 local ram_rom = {}
@@ -236,7 +237,7 @@ local function cpu_incdec_dir(t, amount)
 	end
 end
 local function cpu_print(t)
-	emu_debug(1, string.format("[%04X %04X] ", CPU_SEGMENTS[SEG_CS+1], (CPU_IP-1) & 0xFFFF) .. t .. "\n")
+	emu_debug(1, string.format("[%04X %04X] ", CPU_SEGMENTS[SEG_CS+1], (CPU_IP-1) & 0xFFFF) .. t)
 end
 
 function cpu_set_ip(vcs, vip)
@@ -600,7 +601,7 @@ local function cpu_shr(mrm, opcode, arith)
 	local v1 = cpu_read_rm(mrm, mrm.src) & cpu_shift_mask
 	local v2 = cpu_read_rm(mrm, mrm.dst)
 	local vr
-	if arith then
+	if (arith) then
 		vr = v2
 		local shift1 = v1
 		while shift1 > 0 do
@@ -612,7 +613,8 @@ local function cpu_shr(mrm, opcode, arith)
 	end
 	cpu_write_rm(mrm, mrm.dst, vr)
 	_cpu_uf_zsp(vr, opcode)
-	if (1 << (v1 - 1)) > mask then
+	-- TODO: handle 0xFF
+	if (1 << ((v1 & 0x1F) - 1)) > mask then
 		cpu_write_flag(0, arith and ((v2 & mask) ~= 0))
 	else
 		cpu_write_flag(0, (v2 & (1 << (v1 - 1))) ~= 0)
@@ -632,7 +634,7 @@ local function cpu_rotate(mrm, opcode, mode)
 	local shift = 15
 	if w == 0 then shift = 7 end
 
-	local v1 = cpu_read_rm(mrm, mrm.src) & cpu_shift_mask
+	local v1 = (cpu_read_rm(mrm, mrm.src) & cpu_shift_mask)
 	local v2 = cpu_read_rm(mrm, mrm.dst)
 	local vr = v2
 	local cf = 0
@@ -642,15 +644,18 @@ local function cpu_rotate(mrm, opcode, mode)
 	local shifts = v1
 	if shifts > 0 then
 		if mode == ROTATE_MODE_ROR then
+			shifts = shifts & shift
 			local shiftmask = (1 << shifts) - 1
-			cf = (vr >> (shifts - 1)) & 0x01
-			vr = (vr >> shifts) | ((vr & shiftmask) << (shift - shifts + 1))
+			cf = (vr >> ((shifts - 1) & shift)) & 0x01
+			vr = (vr >> shifts) | ((vr & shiftmask) << ((shift - shifts + 1) & shift))
 			of = ((vr >> shift) ~ (vr >> (shift - 1))) & 0x01
 		elseif mode == ROTATE_MODE_ROL then
-			cf = (vr >> (shift - shifts + 1)) & 0x01
-			vr = ((vr << shifts) & ((1 << (shift + 1)) - 1)) | (vr >> (shift - shifts + 1))
+			shifts = shifts & shift
+			cf = (vr >> ((shift - shifts + 1) & shift)) & 0x01
+			vr = ((vr << shifts) & ((1 << (shift + 1)) - 1)) | (vr >> ((shift - shifts + 1) & shift))
 			of = ((vr >> shift) ~ cf) & 0x01
 		elseif mode == ROTATE_MODE_RCR then
+			shifts = shifts % (shift + 2)
 			while shifts > 0 do
 				local newcf = (vr & 0x01)
 				vr = (vr >> 1) | (cf << shift)
@@ -659,6 +664,7 @@ local function cpu_rotate(mrm, opcode, mode)
 			end
 			of = ((vr >> shift) ~ (vr >> (shift - 1))) & 0x01
 		elseif mode == ROTATE_MODE_RCL then
+			shifts = shifts % (shift + 2)
 			while shifts > 0 do
 				local newcf = (vr >> shift) & 0x01
 				vr = ((vr << 1) & ((1 << (shift + 1)) - 1)) | cf
@@ -821,19 +827,17 @@ local function cpu_add(mrm, opcode, carry)
 	_cpu_uf_co_add(v1, v2, vc, vr, opcode)
 end
 
-local function cpu_cmp(v1, v2, opcode)
-	local w = (opcode & 0x01)
-	local vr = v1 - v2
-	_cpu_uf_co_sub(v2, v1, 0, vr, opcode)
-	if w == 1 then
-		vr = vr & 0xFFFF
-	else
-		vr = vr & 0xFF
-	end
+local function cpu_cmp(v2, v1, opcode)
+	local vr = v2 - v1
+	_cpu_uf_co_sub(v1, v2, 0, vr, opcode)
 	_cpu_uf_zsp(vr, opcode)
 end
 
-local function cpu_sub(mrm, opcode, borrow, is_cmp)
+local function cpu_cmp_mrm(mrm, opcode)
+	cpu_cmp(cpu_read_rm(mrm, mrm.dst), cpu_read_rm(mrm, mrm.src), opcode)
+end
+
+local function cpu_sub(mrm, opcode, borrow)
 	local w = (opcode & 0x01)
 	local v1 = cpu_read_rm(mrm, mrm.src)
 	local v2 = cpu_read_rm(mrm, mrm.dst)
@@ -848,9 +852,7 @@ local function cpu_sub(mrm, opcode, borrow, is_cmp)
 	else
 		vr = vr & 0xFF
 	end
-	if not is_cmp then
-		cpu_write_rm(mrm, mrm.dst, vr)
-	end
+	cpu_write_rm(mrm, mrm.dst, vr)
 	_cpu_uf_zsp(vr, opcode)
 end
 
@@ -886,8 +888,11 @@ local function cpu_or(mrm, opc)
 end
 
 local function cpu_print_state(opcode, adv)
-	cpu_print(string.format("%02X (flags %04X, seg ES %04X CS %04X SS %04X DS %04X)", opcode, CPU_FLAGS, CPU_SEGMENTS[1], CPU_SEGMENTS[2], CPU_SEGMENTS[3], CPU_SEGMENTS[4]))
-	cpu_print(string.format("AX %04X CX %04X DX %04X BX %04X SP %04X BP %04X SI %04X DI %04X", CPU_REGS[1], CPU_REGS[2], CPU_REGS[3], CPU_REGS[4], CPU_REGS[5], CPU_REGS[6], CPU_REGS[7], CPU_REGS[8]))
+	cpu_print(string.format("AX:%04X CX:%04X DX:%04X BX:%04X SP:%04X BP:%04X SI:%04X DI:%04X | %04X %04X %04X %04X | %04X",
+		CPU_REGS[1], CPU_REGS[2], CPU_REGS[3], CPU_REGS[4], CPU_REGS[5], CPU_REGS[6], CPU_REGS[7], CPU_REGS[8],
+		CPU_SEGMENTS[1], CPU_SEGMENTS[2], CPU_SEGMENTS[3], CPU_SEGMENTS[4], CPU_FLAGS))
+--	cpu_print(string.format("%02X (flags %04X, seg ES %04X CS %04X SS %04X DS %04X)", opcode, CPU_FLAGS, CPU_SEGMENTS[1], CPU_SEGMENTS[2], CPU_SEGMENTS[3], CPU_SEGMENTS[4]))
+--	cpu_print(string.format("AX %04X CX %04X DX %04X BX %04X SP %04X BP %04X SI %04X DI %04X", CPU_REGS[1], CPU_REGS[2], CPU_REGS[3], CPU_REGS[4], CPU_REGS[5], CPU_REGS[6], CPU_REGS[7], CPU_REGS[8]))
 	if adv then
 		local s = "c?p?a?zstidoppn?"
 		local s2 = ""
@@ -1113,18 +1118,16 @@ opcode_map[0x27] = function(opcode)
 	local al = CPU_REGS[1] & 0xFF
 	local old_al = al
 	local old_cf = cpu_flag(0)
-	if ((al & 0x0F) > 0x9) or cpu_flag(4) then
+	if ((old_al & 0x0F) > 0x9) or cpu_flag(4) then
 		al = al + 0x6
 		cpu_write_flag(0, old_cf or (al > 0xFF))
 		cpu_set_flag(4)
 	else
 		cpu_clear_flag(4)
 	end
-	if ((al) > 0x99) or old_cf then
+	if (old_al > 0x99) or old_cf then
 		al = al + 0x60
 		cpu_set_flag(0)
-	else
-		cpu_clear_flag(0)
 	end
 	CPU_REGS[1] = (CPU_REGS[1] & 0xFF00) | (al & 0xFF)
 	_cpu_uf_zsp(al, 0)
@@ -1191,7 +1194,7 @@ opcode_map[0x37] = function(opcode)
 end
 
 -- CMP
-opcode_map[0x38] = function(opcode) cpu_sub(cpu_mod_rm6(opcode), opcode, false, true) end
+opcode_map[0x38] = function(opcode) cpu_cmp_mrm(cpu_mod_rm6(opcode), opcode) end
 for i=0x39,0x3D do opcode_map[i] = opcode_map[0x38] end
 
 -- DS:
@@ -1406,7 +1409,7 @@ local grp1_table = {
 	[4]=cpu_and,
 	[5]=function(a,b) cpu_sub(a,b,false) end,	
 	[6]=cpu_xor,
-	[7]=function(a,b) cpu_sub(a,b,false,true) end
+	[7]=function(a,b) cpu_cmp_mrm(a,b) end
 }
 
 -- GRP1
@@ -1598,9 +1601,13 @@ opcode_map[0xA7] = function(opcode)
 end
 
 -- TEST AL, imm8
-opcode_map[0xA8] = function(opcode) cpu_test({src=40,dst=16,imm=cpu_advance_ip()}, 0) end
+opcode_map[0xA8] = function(opcode)
+	_cpu_uf_bit((CPU_REGS[1] & cpu_advance_ip()) & 0xFF, 0)
+end
 -- TEST AX, imm16
-opcode_map[0xA9] = function(opcode) cpu_test({src=41,dst=0,imm=cpu_advance_ip16()}, 1) end
+opcode_map[0xA9] = function(opcode)
+	_cpu_uf_bit((CPU_REGS[1] & cpu_advance_ip16()), 1)
+end
 
 -- STOSB/STOSW
 opcode_map[0xAA] = function(opcode)
@@ -2083,8 +2090,6 @@ run_one = function(no_interrupting, pr_state)
 		end
 	end
 
-	if CPU_HALTED then return "block" end
-
 	if ((CPU_IP & 0xFF00) == 0x1100) and (CPU_SEGMENTS[SEG_CS+1] == 0xF000) then
 		cpu_set_flag(9) -- enable interrupts during (after!) fake handlers
 		local intr = cpu_int_fake(CPU_IP & 0xFF)
@@ -2101,7 +2106,9 @@ run_one = function(no_interrupting, pr_state)
 	end
 
 	local opcode = cpu_advance_ip()
---	if pr_state then cpu_print_state(opcode) end
+#ifdef DEBUG_RUN
+	if pr_state then cpu_print_state(opcode) end
+#endif
 
 	local om = opcode_map[opcode]
 #ifdef DEBUG_OPC_CALLS
@@ -2217,6 +2224,8 @@ local function upd_tick(cv)
 end
 
 local function cpu_execute()
+	if CPU_HALTED and not CPU_HASINT then return "block" end
+
 	execute = true
 	while execute == true do
 		execute = run_one(false, true)
