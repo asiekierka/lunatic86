@@ -2226,5 +2226,15 @@ end
 function emu_execute()
  CPU_FLAGS = 0x0202
  sysconf_init()
+
+ -- set IVT locations to NOP or IRET
+ for i=0,255 do
+  if interrupt_handlers[i+1] then
+   RAM[0xF1100+i] = 0x90
+  else
+   RAM[0xF1100+i] = 0xCF
+  end
+ end
+
  cpu_execute()
 end
